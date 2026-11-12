@@ -12,3 +12,6 @@ cover.out
 
 # IA
 .claude
+
+# no-fork provider source with the pkg/provider shim, see provider-source in Makefile
+/third_party

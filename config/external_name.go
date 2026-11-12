@@ -6,18 +6,24 @@ import (
 
 // ExternalNameConfigs contains all external name configurations for this
 // provider.
+//
+// Every resource gets its ID from the provider on create, and its Terraform
+// read looks the object up by that bare ID alone, so the external name is the
+// provider-assigned ID.
 var ExternalNameConfigs = map[string]config.ExternalName{
-	// Import requires using a randomly generated ID from provider: nl-2e21sda
-	"null_resource": idWithStub(),
-}
-
-func idWithStub() config.ExternalName {
-	e := config.IdentifierFromProvider
-	e.GetExternalNameFn = func(tfstate map[string]any) (string, error) {
-		en, _ := config.IDAsExternalName(tfstate)
-		return en, nil
-	}
-	return e
+	// Numeric cluster ID
+	"scylladbcloud_cluster": config.IdentifierFromProvider,
+	// Numeric connection ID
+	"scylladbcloud_cluster_connection": config.IdentifierFromProvider,
+	// Numeric allowlist rule ID; read searches all clusters for it
+	"scylladbcloud_allowlist_rule": config.IdentifierFromProvider,
+	// Numeric serverless cluster ID
+	"scylladbcloud_serverless_cluster": config.IdentifierFromProvider,
+	// Key ID part of the API token ("<id>:<secret>"); read is a no-op upstream
+	"scylladbcloud_stack": config.IdentifierFromProvider,
+	// Cloud-side peering ID ("externalId" in the API); read searches all
+	// clusters for it
+	"scylladbcloud_vpc_peering": config.IdentifierFromProvider,
 }
 
 // ExternalNameConfigurations applies all external name configs listed in the

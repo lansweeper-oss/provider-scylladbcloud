@@ -10,12 +10,12 @@ export TERRAFORM_VERSION ?= 1.5.7
 # licensed under BSL, which is not permitted.
 TERRAFORM_VERSION_VALID := $(shell [ "$(TERRAFORM_VERSION)" = "`printf "$(TERRAFORM_VERSION)\n1.6" | sort -V | head -n1`" ] && echo 1 || echo 0)
 
-export TERRAFORM_PROVIDER_SOURCE ?= hashicorp/null
-export TERRAFORM_PROVIDER_REPO ?= https://github.com/hashicorp/terraform-provider-null
-export TERRAFORM_PROVIDER_VERSION ?= 3.2.4
-export TERRAFORM_PROVIDER_DOWNLOAD_NAME ?= terraform-provider-null
-export TERRAFORM_PROVIDER_DOWNLOAD_URL_PREFIX ?= https://releases.hashicorp.com/$(TERRAFORM_PROVIDER_DOWNLOAD_NAME)/$(TERRAFORM_PROVIDER_VERSION)
-export TERRAFORM_NATIVE_PROVIDER_BINARY ?= terraform-provider-null_v3.2.4_x5
+export TERRAFORM_PROVIDER_SOURCE ?= scylladb/scylladbcloud
+export TERRAFORM_PROVIDER_REPO ?= https://github.com/scylladb/terraform-provider-scylladbcloud
+export TERRAFORM_PROVIDER_VERSION ?= 1.13.0
+export TERRAFORM_PROVIDER_DOWNLOAD_NAME ?= terraform-provider-scylladbcloud
+export TERRAFORM_PROVIDER_DOWNLOAD_URL_PREFIX ?= $(TERRAFORM_PROVIDER_REPO)/releases/download/v$(TERRAFORM_PROVIDER_VERSION)
+export TERRAFORM_NATIVE_PROVIDER_BINARY ?= $(TERRAFORM_PROVIDER_DOWNLOAD_NAME)_v$(TERRAFORM_PROVIDER_VERSION)
 export TERRAFORM_DOCS_PATH ?= docs/resources
 
 
@@ -136,9 +136,48 @@ pull-docs:
 	fi
 	@git -C "$(WORK_DIR)/$(TERRAFORM_PROVIDER_SOURCE)" sparse-checkout set "$(TERRAFORM_DOCS_PATH)"
 
-generate.init: $(TERRAFORM_PROVIDER_SCHEMA) pull-docs
+# ------------------------------------------------------------------------------------
+# Provider source extraction for the no-fork (in-process) runtime
+#
+# The upstream provider constructor lives in internal/provider, which Go forbids
+# importing from another module. We clone the provider at the pinned version into
+# third_party/ and add a public pkg/provider shim inside that module tree, which is
+# allowed to import internal/. The go.mod has a replace directive pointing at this
+# directory so config/ can import pkg/provider directly.
+# third_party/ is gitignored; fresh checkouts get it through build.init,
+# generate.init and go.modules.download.
 
-.PHONY: $(TERRAFORM_PROVIDER_SCHEMA) pull-docs check-terraform-version
+# Changing TERRAFORM_PROVIDER_VERSION invalidates the cached docs and provider source.
+PROVIDER_VERSION_STAMP := $(WORK_DIR)/.provider-version-$(TERRAFORM_PROVIDER_VERSION)
+$(PROVIDER_VERSION_STAMP):
+	@rm -rf $(WORK_DIR)/.provider-version-* "$(WORK_DIR)/$(TERRAFORM_PROVIDER_SOURCE)" "$(PROVIDER_SOURCE_DIR)"
+	@mkdir -p $(WORK_DIR) && touch $@
+
+PROVIDER_SOURCE_DIR := third_party/$(TERRAFORM_PROVIDER_DOWNLOAD_NAME)
+
+provider-source: $(PROVIDER_VERSION_STAMP)
+	@if [ ! -d "$(PROVIDER_SOURCE_DIR)/pkg/provider" ]; then \
+		$(INFO) extracting $(TERRAFORM_PROVIDER_SOURCE) provider source v$(TERRAFORM_PROVIDER_VERSION); \
+		rm -rf "$(PROVIDER_SOURCE_DIR)"; \
+		git clone -c advice.detachedHead=false --depth 1 --branch "v$(TERRAFORM_PROVIDER_VERSION)" "$(TERRAFORM_PROVIDER_REPO)" "$(PROVIDER_SOURCE_DIR)" || $(FAIL); \
+		rm -rf "$(PROVIDER_SOURCE_DIR)/.git"; \
+		$(INFO) creating pkg/provider shim for internal/provider; \
+		mkdir -p "$(PROVIDER_SOURCE_DIR)/pkg/provider"; \
+		printf 'package provider\n\nimport (\n\t"context"\n\n\t"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"\n\n\tinternalprovider "github.com/scylladb/terraform-provider-scylladbcloud/internal/provider"\n)\n\n// New exposes the upstream internal SDKv2 provider constructor to other modules.\nfunc New(ctx context.Context) *schema.Provider {\n\treturn internalprovider.New(ctx)\n}\n' > "$(PROVIDER_SOURCE_DIR)/pkg/provider/provider.go"; \
+		$(OK) extracting $(TERRAFORM_PROVIDER_SOURCE) provider source v$(TERRAFORM_PROVIDER_VERSION); \
+	fi
+
+provider-source-clean:
+	@rm -rf "$(PROVIDER_SOURCE_DIR)"
+
+pull-docs: $(PROVIDER_VERSION_STAMP)
+build.init: provider-source
+go.modules.download: provider-source
+clean: provider-source-clean
+
+generate.init: $(TERRAFORM_PROVIDER_SCHEMA) pull-docs provider-source
+
+.PHONY: $(TERRAFORM_PROVIDER_SCHEMA) pull-docs check-terraform-version provider-source provider-source-clean
 # ====================================================================================
 # Targets
 

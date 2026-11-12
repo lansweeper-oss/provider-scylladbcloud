@@ -12,6 +12,7 @@ require (
 	github.com/crossplane/crossplane/apis/v2 v2.4.3
 	github.com/crossplane/upjet/v2 v2.5.1
 	github.com/pkg/errors v0.9.1
+	github.com/scylladb/terraform-provider-scylladbcloud v0.0.0-local
 	google.golang.org/grpc v1.83.2
 	k8s.io/api v0.37.2
 	k8s.io/apiextensions-apiserver v0.37.2
@@ -159,3 +160,7 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+// The upstream provider constructor is in internal/; third_party/ holds the
+// provider source plus a public pkg/provider shim (see provider-source in Makefile).
+replace github.com/scylladb/terraform-provider-scylladbcloud => ./third_party/terraform-provider-scylladbcloud
