@@ -15,6 +15,10 @@ var kindOverrides = map[string]string{
 }
 
 // Configure adds resource-specific overrides to the provider configuration.
+//
+// cluster_id is deliberately not configured as a cross-resource reference: it
+// is a Terraform TypeInt (Go *int64), and crossplane-tools only generates
+// reference resolvers for string and float64 fields.
 func Configure(p *config.Provider) {
 	for name, kind := range kindOverrides {
 		p.AddResourceConfigurator(name, func(r *config.Resource) {

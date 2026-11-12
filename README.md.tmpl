@@ -94,6 +94,14 @@ or (deploying in-cluster):
 make local-deploy
 ```
 
+Run e2e tests (locally in a KinD cluster, against a real ScyllaDB Cloud
+account; see [e2e/README.md](e2e/README.md) for cost and the opt-in suites):
+
+```console
+export SCYLLADB_CLOUD_TOKEN=<your API token>
+make e2e
+```
+
 Build, push, and install:
 
 ```console

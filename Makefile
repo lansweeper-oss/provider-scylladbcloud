@@ -64,6 +64,7 @@ UPTEST_VERSION = v2.2.0
 # it "still resides" in github.com/upbound/uptest, see the crddiff target.
 CRDDIFF_VERSION = v0.12.1
 CROSSPLANE_CLI_VERSION = v2.5.0
+CHAINSAW_VERSION = 0.2.15
 # for e2e testing
 CROSSPLANE_VERSION = 2.4.3
 -include build/makelib/k8s_tools.mk
@@ -243,7 +244,12 @@ run: go.build
 
 # ====================================================================================
 # End to End Testing
+#
+# The e2e suite runs against a real ScyllaDB Cloud account and needs
+# SCYLLADB_CLOUD_TOKEN (and optionally SCYLLADB_CLOUD_ENDPOINT) in the
+# environment; see e2e/README.md. It is not run in CI.
 CROSSPLANE_NAMESPACE = crossplane-system
+DRC_FILE = e2e/setup/drc.yaml
 
 # Required by build/makelib/uptest.mk - tells the e2e target which make target
 # deploys the provider into the local Kind cluster.
@@ -257,11 +263,51 @@ UPTEST_INPUT_MANIFESTS ?= $(shell find e2e/manifests -name '*.yaml' 2>/dev/null 
 UPTEST_DATASOURCE_PATH ?= /dev/null
 
 UPTEST_ARGS += --default-conditions="Test"
-UPTEST_SETUP_SCRIPT = cluster/test/setup.sh
+UPTEST_SETUP_SCRIPT = e2e/setup/setup.sh
 
 -include build/makelib/local.xpkg.mk
 -include build/makelib/controlplane.mk
 -include build/makelib/uptest.mk
+
+# chainsaw suite. Every test lives in e2e/tests/<cluster|namespaced>/<test> and has a
+# `suite` label: default (token only), aws (needs your AWS account, see e2e/README.md)
+# or serverless. By default runs suite=default; pick tests with CHAINSAW_TESTS
+# (directories, e.g. CHAINSAW_TESTS=e2e/tests/namespaced/aws-vpc-peering) or with
+# CHAINSAW_SELECTOR (e.g. CHAINSAW_SELECTOR=suite=aws).
+ifeq ($(origin CHAINSAW_TESTS),undefined)
+CHAINSAW_SELECTOR ?= suite=default
+endif
+CHAINSAW_TESTS ?= e2e/tests
+chainsaw-e2e: e2e-cleanup $(CHAINSAW)
+	@$(INFO) running chainsaw tests $(CHAINSAW_TESTS) $(CHAINSAW_SELECTOR)
+	@KUBECTL=$(KUBECTL) $(CHAINSAW) test $(CHAINSAW_TESTS) $(if $(CHAINSAW_SELECTOR),--selector $(CHAINSAW_SELECTOR)) || $(FAIL)
+	@$(OK) running chainsaw tests
+
+e2e: chainsaw-e2e
+
+# Credentials secret and ProviderConfigs without running uptest, e.g. to run only
+# chainsaw tests: make local-deploy e2e-setup chainsaw-e2e
+e2e-setup: e2e-check-context $(KUBECTL)
+	@$(INFO) setting up e2e credentials and provider configs
+	@KUBECTL=$(KUBECTL) $(UPTEST_SETUP_SCRIPT) || $(FAIL)
+	@$(OK) setting up e2e credentials and provider configs
+
+# The e2e targets act on the current kubectl context (they create secrets and
+# delete managed resources). Refuse to run unless it is the Kind cluster that
+# controlplane.up creates and switches to.
+e2e-check-context: $(KUBECTL)
+	@ctx=$$($(KUBECTL) config current-context 2>/dev/null); \
+	if [ "$$ctx" != "kind-$(KIND_CLUSTER_NAME)" ]; then \
+		echo "Refusing to run e2e targets: kubectl context is '$$ctx', expected 'kind-$(KIND_CLUSTER_NAME)'. Run 'make e2e' or 'make local-deploy' first." >&2; \
+		$(FAIL); \
+	fi
+
+uptest: e2e-check-context
+
+e2e-cleanup: e2e-check-context $(KUBECTL)
+	@$(INFO) cleaning up e2e managed resources
+	@$(KUBECTL) delete managed --all-namespaces -l e2e-test=true 2>/dev/null || true
+	@$(OK) e2e cleanup complete
 
 local-deploy: build.all controlplane.up local.xpkg.deploy.provider.$(PROJECT_NAME)
 	@$(INFO) running locally built provider
@@ -313,7 +359,7 @@ schema-version-diff: $(TERRAFORM_PROVIDER_SCHEMA:.json=.generated.lst)
 	./scripts/version_diff.py config/generated.lst "$(WORK_DIR)/schema.json.$${PREV_PROVIDER_VERSION}" config/schema.json
 	@$(OK) Checking for native state schema version changes
 
-.PHONY: e2e cobertura local-deploy submodules fallthrough run crds.clean clean prune.stale.xpkg
+.PHONY: e2e cobertura local-deploy submodules fallthrough run crds.clean clean prune.stale.xpkg chainsaw-e2e e2e-cleanup e2e-setup e2e-check-context
 
 # ====================================================================================
 # Package Extensions (README, SBOM)

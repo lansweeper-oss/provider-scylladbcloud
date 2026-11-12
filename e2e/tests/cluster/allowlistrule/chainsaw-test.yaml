@@ -1,0 +1,98 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: allowlistrule-cluster
+  labels:
+    suite: default
+# Creates its own dedicated, billable cluster and tests an AllowListRule on it,
+# for cluster-scoped resources: create, Ready, delete.
+# cluster_id can't be a cross-resource reference (it's an integer field), so
+# the ID is copied from the Cluster status.
+spec:
+  timeouts:
+    # Upstream waits up to 90m for cluster deletion.
+    delete: 95m
+    cleanup: 95m
+  steps:
+    - name: create-cluster
+      try:
+        - apply:
+            resource:
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: Cluster
+              metadata:
+                name: e2e-cs-allowlistrule
+                labels:
+                  e2e-test: "true"
+              spec:
+                forProvider:
+                  name: e2e-cs-allowlistrule
+                  cloud: AWS
+                  region: us-east-1
+                  nodeType: i3.xlarge
+                  minNodes: 3
+                  cidrBlock: 172.31.0.0/16
+                  # Upstream default; required by VPC peering.
+                  enableVpcPeering: true
+                  enableDns: true
+                  # Don't keep backups of a throwaway test cluster after deletion.
+                  backupRetentionDays: 0
+                providerConfigRef:
+                  name: default
+        - assert:
+            # Upstream waits up to 40m for cluster creation.
+            timeout: 45m
+            resource:
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: Cluster
+              metadata:
+                name: e2e-cs-allowlistrule
+              status:
+                (conditions[?type == 'Ready']):
+                  - status: "True"
+                atProvider:
+                  (clusterId > `0`): true
+                  (length(datacenter) > `0`): true
+
+    - name: allowlist-rule
+      try:
+        - script:
+            timeout: 30s
+
+            content: |
+              CLUSTER_ID=$(${KUBECTL} get clusters.scylladbcloud.scylladbcloud.crossplane.io/e2e-cs-allowlistrule -o jsonpath='{.status.atProvider.clusterId}')
+              DATACENTER=$(${KUBECTL} get clusters.scylladbcloud.scylladbcloud.crossplane.io/e2e-cs-allowlistrule -o jsonpath='{.status.atProvider.datacenter}')
+              echo "Creating AllowListRule for cluster ID ${CLUSTER_ID} in datacenter ${DATACENTER}"
+              cat <<EOF | ${KUBECTL} apply -f -
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: AllowListRule
+              metadata:
+                name: e2e-allowlist
+                labels:
+                  e2e-test: "true"
+              spec:
+                forProvider:
+                  clusterId: ${CLUSTER_ID}
+                  # RFC 5737 documentation range: never a real client.
+                  cidrBlock: 203.0.113.10/32
+                providerConfigRef:
+                  name: default
+              EOF
+        - assert:
+            timeout: 45m
+            resource:
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: AllowListRule
+              metadata:
+                name: e2e-allowlist
+              status:
+                (conditions[?type == 'Ready']):
+                  - status: "True"
+                atProvider:
+                  cidrBlock: 203.0.113.10/32
+      finally:
+        - delete:
+            ref:
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: AllowListRule
+              name: e2e-allowlist
