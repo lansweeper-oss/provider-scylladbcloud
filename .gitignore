@@ -1,17 +1,17 @@
-/.cache
-/.work
+.*
+**/.*
+!.github
+!.gitignore
+!.gitmodules
+!.golangci.yml
+
 /_output
 cover.out
 /vendor
-/.vendor-new
-.DS_Store
 
-# ignore IDE folders
-.vscode/
-.idea/
+# generated files
+config/generated.lst
+examples-generated
 
-# IA
-.claude
-
-# no-fork provider source with the pkg/provider shim, see provider-source in Makefile
 /third_party
+/extensions

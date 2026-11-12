@@ -3,4 +3,4 @@ kind: Provider
 metadata:
   name: provider-scylladbcloud
 spec:
-  package: xpkg.crossplane.io/lansweeper-oss/provider-scylladbcloud:v0.1.0
+  package: xpkg.crossplane.io/lansweeper/provider-scylladbcloud:v0.1.0

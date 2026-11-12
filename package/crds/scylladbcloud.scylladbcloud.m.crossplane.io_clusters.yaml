@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.20.1
+    controller-gen.kubebuilder.io/version: v0.23.0
   name: clusters.scylladbcloud.scylladbcloud.m.crossplane.io
 spec:
   group: scylladbcloud.scylladbcloud.m.crossplane.io
@@ -60,12 +60,10 @@ spec:
                 properties:
                   alternatorWriteIsolation:
                     description: |-
-                      (String) The write isolation policy. Used only for the ALTERNATOR API interface.
                       The write isolation policy. Used only for the ALTERNATOR API interface.
                     type: string
                   availabilityZoneIds:
                     description: |-
-                      az1", "use1-az4", "use1-az5"]). If omitted, zones are selected automatically.
                       Availability zone IDs where cluster nodes are provisioned. Provide exactly 3 distinct AZ IDs (e.g. ["use1-az1", "use1-az4", "use1-az5"]). If omitted, zones are selected automatically.
                     items:
                       type: string
@@ -73,129 +71,107 @@ spec:
                     x-kubernetes-list-type: set
                   backupRetentionDays:
                     description: |-
-                      (Number) The number of days to retain backups after deleting the cluster between 0 and 60. If set to 0, backups are deleted immediately. Defaults to 1 to prevent accidental data loss.
                       The number of days to retain backups after deleting the cluster between 0 and 60. If set to 0, backups are deleted immediately. Defaults to 1 to prevent accidental data loss.
                     format: int64
                     type: integer
                   byoaId:
                     description: |-
-                      (Number) The ID of your account (BYOA) in ScyllaDB Cloud (only for AWS).
                       The ID of your account (BYOA) in ScyllaDB Cloud (only for AWS).
                     format: int64
                     type: integer
                   cidrBlock:
                     description: |-
-                      (String) The CIDR block for the cluster network.
                       The CIDR block for the cluster network.
                     type: string
                   cloud:
                     description: |-
-                      (String) The cloud provider. Accepted values: AWS, GCP.
                       The cloud provider. Accepted values: AWS, GCP.
                     type: string
                   enableDns:
                     description: |-
-                      (Boolean) Whether to enable DNS for the cluster.
                       Whether to enable DNS for the cluster.
                     type: boolean
                   enableVpcPeering:
                     description: |-
-                      (Boolean) Whether to enable VPC peering for the cluster.
                       Whether to enable VPC peering for the cluster.
                     type: boolean
                   encryptionAtRest:
                     description: |-
-                      level encryption at rest. The key provider is derived from the cloud attribute. Encryption at rest can only be configured when the cluster is created, so changing any field in this block replaces the cluster. New clusters are encrypted with a ScyllaDB-managed key by default. The block is needed to opt out with enabled = false or to point at a customer-managed key. Existing clusters are never modified. (see below for nested schema)
                       Configures database-level encryption at rest. The key provider is derived from the `cloud` attribute. Encryption at rest can only be configured when the cluster is created, so changing any field in this block replaces the cluster. New clusters are encrypted with a ScyllaDB-managed key by default. The block is needed to opt out with `enabled = false` or to point at a customer-managed key. Existing clusters are never modified.
                     items:
                       properties:
                         enabled:
                           description: |-
-                            (Boolean) Whether the cluster data is encrypted at rest. Defaults to true; set it to false to create the cluster unencrypted.
                             Whether the cluster data is encrypted at rest. Defaults to true; set it to false to create the cluster unencrypted.
                           type: boolean
                         keyId:
                           description: |-
-                            managed key pre-created in the ScyllaDB Cloud portal (e.g. key-deadbeef). Leave it unset to let ScyllaDB Cloud manage the key.
                             The ID of a customer-managed key pre-created in the ScyllaDB Cloud portal (e.g. `key-deadbeef`). Leave it unset to let ScyllaDB Cloud manage the key.
                           type: string
                       type: object
                     type: array
                   minNodes:
                     description: |-
-                      creation.
                       Minimum number of nodes in the cluster. Required for Standard clusters; must be at least 3 and divisible by 3. Must not be set when the scaling block is present, in which case it reads back as `0` and `node_count` reports the number of nodes the cluster currently runs. Increasing this value scales the cluster out; decreasing it scales the cluster in.
                     format: int64
                     type: integer
                   name:
                     description: |-
-                      (String) The name of the cluster.
                       The name of the cluster.
                     type: string
                   nodeDiskSize:
                     description: |-
-                      (Number) The disk size in gigabytes of the node. Must not be set when the scaling block is present, in which case it reads back as 0: the control plane picks the instance from the scaling policy and changes it as the cluster scales.
                       The disk size in gigabytes of the node. Must not be set when the scaling block is present, in which case it reads back as `0`: the control plane picks the instance from the scaling policy and changes it as the cluster scales.
                     format: int64
                     type: integer
                   nodeType:
                     description: |-
-                      (String) The instance type for cluster nodes (e.g. i8g.large). Required for Standard clusters. Must not be set when the scaling block is present, in which case it reads back as empty: the control plane picks the instance from the scaling policy and changes it as the cluster scales.
                       The instance type for cluster nodes (e.g. i8g.large). Required for Standard clusters. Must not be set when the scaling block is present, in which case it reads back as empty: the control plane picks the instance from the scaling policy and changes it as the cluster scales.
                     type: string
                   region:
                     description: |-
-                      east-1).
                       The cloud region to deploy the cluster in (e.g. us-east-1).
                     type: string
                   scaling:
                     description: |-
-                      (Block List, Max: 1) Defines the autoscaling policy for an X Cloud cluster. Mutually exclusive with node_type and min_nodes. When present, the control plane manages scaling automatically based on the policy defined below. (see below for nested schema)
                       Defines the autoscaling policy for an X Cloud cluster. Mutually exclusive with `node_type` and `min_nodes`. When present, the control plane manages scaling automatically based on the policy defined below.
                     items:
                       properties:
                         instanceFamilies:
                           description: |-
-                            (List of String) Instance families to use for autoscaling (e.g. ["i8g"]). X Cloud scales within one predefined instance family. Manually restricting the cluster to a narrow set of instance types can limit the effectiveness of the autoscaling engine. Either instance_families or instance_types should be used.
                             Instance families to use for autoscaling (e.g. ["i8g"]). X Cloud scales within one predefined instance family. Manually restricting the cluster to a narrow set of instance types can limit the effectiveness of the autoscaling engine. Either instance_families or instance_types should be used.
                           items:
                             type: string
                           type: array
                         instanceTypes:
                           description: |-
-                            (List of String) Instance types to use for autoscaling (e.g. ["i8g.large", "i8g.xlarge"]). Consider using instance_families instead. Either instance_families or instance_types should be used.
                             Instance types to use for autoscaling (e.g. ["i8g.large", "i8g.xlarge"]). Consider using instance_families instead. Either instance_families or instance_types should be used.
                           items:
                             type: string
                           type: array
                         storagePolicy:
                           description: |-
-                            based autoscaling. (see below for nested schema)
                             Controls storage-based autoscaling.
                           items:
                             properties:
                               minGb:
                                 description: |-
-                                  (Number) Minimum physical storage, in gigabytes, to keep provisioned across the cluster. The cluster will not scale below this threshold. If omitted, ScyllaDB Cloud manages baseline storage dynamically.
                                   Minimum physical storage, in gigabytes, to keep provisioned across the cluster. The cluster will not scale below this threshold. If omitted, ScyllaDB Cloud manages baseline storage dynamically.
                                 format: int64
                                 type: integer
                               targetUtilization:
                                 description: |-
-                                  intensive workloads, values below 0.85 are recommended to provide headroom before the autoscaler triggers.
                                   Target storage utilization as a fraction between 0 and 1 (e.g. 0.75 = 75%). The autoscaler adds or removes capacity to maintain this level. Defaults to 0.8. Maximum is 0.9. For write-intensive workloads, values below 0.85 are recommended to provide headroom before the autoscaler triggers.
                                 type: number
                             type: object
                           type: array
                         vcpuPolicy:
                           description: |-
-                            based autoscaling. (see below for nested schema)
                             Controls compute-based autoscaling.
                           items:
                             properties:
                               min:
                                 description: |-
-                                  (Number) Minimum vCPU count to maintain across the cluster. The cluster will not scale below this compute baseline. If omitted, ScyllaDB Cloud manages compute capacity dynamically.
                                   Minimum vCPU count to maintain across the cluster. The cluster will not scale below this compute baseline. If omitted, ScyllaDB Cloud manages compute capacity dynamically.
                                 format: int64
                                 type: integer
@@ -205,12 +181,10 @@ spec:
                     type: array
                   scyllaVersion:
                     description: |-
-                      (String) Scylla version. The latest version will be used by default.
                       Scylla version. The latest version will be used by default.
                     type: string
                   userApiInterface:
                     description: |-
-                      (String) The type of user API interface. Valid values are CQL or ALTERNATOR.
                       The type of user API interface. Valid values are CQL or ALTERNATOR.
                     type: string
                 type: object
@@ -229,12 +203,10 @@ spec:
                 properties:
                   alternatorWriteIsolation:
                     description: |-
-                      (String) The write isolation policy. Used only for the ALTERNATOR API interface.
                       The write isolation policy. Used only for the ALTERNATOR API interface.
                     type: string
                   availabilityZoneIds:
                     description: |-
-                      az1", "use1-az4", "use1-az5"]). If omitted, zones are selected automatically.
                       Availability zone IDs where cluster nodes are provisioned. Provide exactly 3 distinct AZ IDs (e.g. ["use1-az1", "use1-az4", "use1-az5"]). If omitted, zones are selected automatically.
                     items:
                       type: string
@@ -242,129 +214,107 @@ spec:
                     x-kubernetes-list-type: set
                   backupRetentionDays:
                     description: |-
-                      (Number) The number of days to retain backups after deleting the cluster between 0 and 60. If set to 0, backups are deleted immediately. Defaults to 1 to prevent accidental data loss.
                       The number of days to retain backups after deleting the cluster between 0 and 60. If set to 0, backups are deleted immediately. Defaults to 1 to prevent accidental data loss.
                     format: int64
                     type: integer
                   byoaId:
                     description: |-
-                      (Number) The ID of your account (BYOA) in ScyllaDB Cloud (only for AWS).
                       The ID of your account (BYOA) in ScyllaDB Cloud (only for AWS).
                     format: int64
                     type: integer
                   cidrBlock:
                     description: |-
-                      (String) The CIDR block for the cluster network.
                       The CIDR block for the cluster network.
                     type: string
                   cloud:
                     description: |-
-                      (String) The cloud provider. Accepted values: AWS, GCP.
                       The cloud provider. Accepted values: AWS, GCP.
                     type: string
                   enableDns:
                     description: |-
-                      (Boolean) Whether to enable DNS for the cluster.
                       Whether to enable DNS for the cluster.
                     type: boolean
                   enableVpcPeering:
                     description: |-
-                      (Boolean) Whether to enable VPC peering for the cluster.
                       Whether to enable VPC peering for the cluster.
                     type: boolean
                   encryptionAtRest:
                     description: |-
-                      level encryption at rest. The key provider is derived from the cloud attribute. Encryption at rest can only be configured when the cluster is created, so changing any field in this block replaces the cluster. New clusters are encrypted with a ScyllaDB-managed key by default. The block is needed to opt out with enabled = false or to point at a customer-managed key. Existing clusters are never modified. (see below for nested schema)
                       Configures database-level encryption at rest. The key provider is derived from the `cloud` attribute. Encryption at rest can only be configured when the cluster is created, so changing any field in this block replaces the cluster. New clusters are encrypted with a ScyllaDB-managed key by default. The block is needed to opt out with `enabled = false` or to point at a customer-managed key. Existing clusters are never modified.
                     items:
                       properties:
                         enabled:
                           description: |-
-                            (Boolean) Whether the cluster data is encrypted at rest. Defaults to true; set it to false to create the cluster unencrypted.
                             Whether the cluster data is encrypted at rest. Defaults to true; set it to false to create the cluster unencrypted.
                           type: boolean
                         keyId:
                           description: |-
-                            managed key pre-created in the ScyllaDB Cloud portal (e.g. key-deadbeef). Leave it unset to let ScyllaDB Cloud manage the key.
                             The ID of a customer-managed key pre-created in the ScyllaDB Cloud portal (e.g. `key-deadbeef`). Leave it unset to let ScyllaDB Cloud manage the key.
                           type: string
                       type: object
                     type: array
                   minNodes:
                     description: |-
-                      creation.
                       Minimum number of nodes in the cluster. Required for Standard clusters; must be at least 3 and divisible by 3. Must not be set when the scaling block is present, in which case it reads back as `0` and `node_count` reports the number of nodes the cluster currently runs. Increasing this value scales the cluster out; decreasing it scales the cluster in.
                     format: int64
                     type: integer
                   name:
                     description: |-
-                      (String) The name of the cluster.
                       The name of the cluster.
                     type: string
                   nodeDiskSize:
                     description: |-
-                      (Number) The disk size in gigabytes of the node. Must not be set when the scaling block is present, in which case it reads back as 0: the control plane picks the instance from the scaling policy and changes it as the cluster scales.
                       The disk size in gigabytes of the node. Must not be set when the scaling block is present, in which case it reads back as `0`: the control plane picks the instance from the scaling policy and changes it as the cluster scales.
                     format: int64
                     type: integer
                   nodeType:
                     description: |-
-                      (String) The instance type for cluster nodes (e.g. i8g.large). Required for Standard clusters. Must not be set when the scaling block is present, in which case it reads back as empty: the control plane picks the instance from the scaling policy and changes it as the cluster scales.
                       The instance type for cluster nodes (e.g. i8g.large). Required for Standard clusters. Must not be set when the scaling block is present, in which case it reads back as empty: the control plane picks the instance from the scaling policy and changes it as the cluster scales.
                     type: string
                   region:
                     description: |-
-                      east-1).
                       The cloud region to deploy the cluster in (e.g. us-east-1).
                     type: string
                   scaling:
                     description: |-
-                      (Block List, Max: 1) Defines the autoscaling policy for an X Cloud cluster. Mutually exclusive with node_type and min_nodes. When present, the control plane manages scaling automatically based on the policy defined below. (see below for nested schema)
                       Defines the autoscaling policy for an X Cloud cluster. Mutually exclusive with `node_type` and `min_nodes`. When present, the control plane manages scaling automatically based on the policy defined below.
                     items:
                       properties:
                         instanceFamilies:
                           description: |-
-                            (List of String) Instance families to use for autoscaling (e.g. ["i8g"]). X Cloud scales within one predefined instance family. Manually restricting the cluster to a narrow set of instance types can limit the effectiveness of the autoscaling engine. Either instance_families or instance_types should be used.
                             Instance families to use for autoscaling (e.g. ["i8g"]). X Cloud scales within one predefined instance family. Manually restricting the cluster to a narrow set of instance types can limit the effectiveness of the autoscaling engine. Either instance_families or instance_types should be used.
                           items:
                             type: string
                           type: array
                         instanceTypes:
                           description: |-
-                            (List of String) Instance types to use for autoscaling (e.g. ["i8g.large", "i8g.xlarge"]). Consider using instance_families instead. Either instance_families or instance_types should be used.
                             Instance types to use for autoscaling (e.g. ["i8g.large", "i8g.xlarge"]). Consider using instance_families instead. Either instance_families or instance_types should be used.
                           items:
                             type: string
                           type: array
                         storagePolicy:
                           description: |-
-                            based autoscaling. (see below for nested schema)
                             Controls storage-based autoscaling.
                           items:
                             properties:
                               minGb:
                                 description: |-
-                                  (Number) Minimum physical storage, in gigabytes, to keep provisioned across the cluster. The cluster will not scale below this threshold. If omitted, ScyllaDB Cloud manages baseline storage dynamically.
                                   Minimum physical storage, in gigabytes, to keep provisioned across the cluster. The cluster will not scale below this threshold. If omitted, ScyllaDB Cloud manages baseline storage dynamically.
                                 format: int64
                                 type: integer
                               targetUtilization:
                                 description: |-
-                                  intensive workloads, values below 0.85 are recommended to provide headroom before the autoscaler triggers.
                                   Target storage utilization as a fraction between 0 and 1 (e.g. 0.75 = 75%). The autoscaler adds or removes capacity to maintain this level. Defaults to 0.8. Maximum is 0.9. For write-intensive workloads, values below 0.85 are recommended to provide headroom before the autoscaler triggers.
                                 type: number
                             type: object
                           type: array
                         vcpuPolicy:
                           description: |-
-                            based autoscaling. (see below for nested schema)
                             Controls compute-based autoscaling.
                           items:
                             properties:
                               min:
                                 description: |-
-                                  (Number) Minimum vCPU count to maintain across the cluster. The cluster will not scale below this compute baseline. If omitted, ScyllaDB Cloud manages compute capacity dynamically.
                                   Minimum vCPU count to maintain across the cluster. The cluster will not scale below this compute baseline. If omitted, ScyllaDB Cloud manages compute capacity dynamically.
                                 format: int64
                                 type: integer
@@ -374,12 +324,10 @@ spec:
                     type: array
                   scyllaVersion:
                     description: |-
-                      (String) Scylla version. The latest version will be used by default.
                       Scylla version. The latest version will be used by default.
                     type: string
                   userApiInterface:
                     description: |-
-                      (String) The type of user API interface. Valid values are CQL or ALTERNATOR.
                       The type of user API interface. Valid values are CQL or ALTERNATOR.
                     type: string
                 type: object
@@ -457,12 +405,10 @@ spec:
                 properties:
                   alternatorWriteIsolation:
                     description: |-
-                      (String) The write isolation policy. Used only for the ALTERNATOR API interface.
                       The write isolation policy. Used only for the ALTERNATOR API interface.
                     type: string
                   availabilityZoneIds:
                     description: |-
-                      az1", "use1-az4", "use1-az5"]). If omitted, zones are selected automatically.
                       Availability zone IDs where cluster nodes are provisioned. Provide exactly 3 distinct AZ IDs (e.g. ["use1-az1", "use1-az4", "use1-az5"]). If omitted, zones are selected automatically.
                     items:
                       type: string
@@ -470,179 +416,149 @@ spec:
                     x-kubernetes-list-type: set
                   backupRetentionDays:
                     description: |-
-                      (Number) The number of days to retain backups after deleting the cluster between 0 and 60. If set to 0, backups are deleted immediately. Defaults to 1 to prevent accidental data loss.
                       The number of days to retain backups after deleting the cluster between 0 and 60. If set to 0, backups are deleted immediately. Defaults to 1 to prevent accidental data loss.
                     format: int64
                     type: integer
                   byoaId:
                     description: |-
-                      (Number) The ID of your account (BYOA) in ScyllaDB Cloud (only for AWS).
                       The ID of your account (BYOA) in ScyllaDB Cloud (only for AWS).
                     format: int64
                     type: integer
                   caCertificate:
                     description: |-
-                      encoded CA certificate used to verify TLS (client-to-node encrypted) connections to the cluster. Empty if in-transit encryption is not enabled.
                       The PEM-encoded CA certificate used to verify TLS (client-to-node encrypted) connections to the cluster. Empty if in-transit encryption is not enabled.
                     type: string
                   cidrBlock:
                     description: |-
-                      (String) The CIDR block for the cluster network.
                       The CIDR block for the cluster network.
                     type: string
                   cloud:
                     description: |-
-                      (String) The cloud provider. Accepted values: AWS, GCP.
                       The cloud provider. Accepted values: AWS, GCP.
                     type: string
                   clusterId:
                     description: |-
-                      (Number) The computed cluster ID.
                       The computed cluster ID.
                     format: int64
                     type: integer
                   datacenter:
                     description: |-
-                      (String) The computed cluster datacenter name.
                       The computed cluster datacenter name.
                     type: string
                   enableDns:
                     description: |-
-                      (Boolean) Whether to enable DNS for the cluster.
                       Whether to enable DNS for the cluster.
                     type: boolean
                   enableVpcPeering:
                     description: |-
-                      (Boolean) Whether to enable VPC peering for the cluster.
                       Whether to enable VPC peering for the cluster.
                     type: boolean
                   encryptionAtRest:
                     description: |-
-                      level encryption at rest. The key provider is derived from the cloud attribute. Encryption at rest can only be configured when the cluster is created, so changing any field in this block replaces the cluster. New clusters are encrypted with a ScyllaDB-managed key by default. The block is needed to opt out with enabled = false or to point at a customer-managed key. Existing clusters are never modified. (see below for nested schema)
                       Configures database-level encryption at rest. The key provider is derived from the `cloud` attribute. Encryption at rest can only be configured when the cluster is created, so changing any field in this block replaces the cluster. New clusters are encrypted with a ScyllaDB-managed key by default. The block is needed to opt out with `enabled = false` or to point at a customer-managed key. Existing clusters are never modified.
                     items:
                       properties:
                         enabled:
                           description: |-
-                            (Boolean) Whether the cluster data is encrypted at rest. Defaults to true; set it to false to create the cluster unencrypted.
                             Whether the cluster data is encrypted at rest. Defaults to true; set it to false to create the cluster unencrypted.
                           type: boolean
                         keyId:
                           description: |-
-                            managed key pre-created in the ScyllaDB Cloud portal (e.g. key-deadbeef). Leave it unset to let ScyllaDB Cloud manage the key.
                             The ID of a customer-managed key pre-created in the ScyllaDB Cloud portal (e.g. `key-deadbeef`). Leave it unset to let ScyllaDB Cloud manage the key.
                           type: string
                         provider:
                           description: |-
-                            aws or scylla-gcp for a ScyllaDB-managed key, aws or gcp for a customer-managed one. Empty if encryption at rest is not enabled.
                             The key provider resolved by the API: `scylla-aws` or `scylla-gcp` for a ScyllaDB-managed key, `aws` or `gcp` for a customer-managed one. Empty if encryption at rest is not enabled.
                           type: string
                       type: object
                     type: array
                   id:
-                    description: (String) The ID of this resource.
+                    description: The ID of this resource.
                     type: string
                   minNodes:
                     description: |-
-                      creation.
                       Minimum number of nodes in the cluster. Required for Standard clusters; must be at least 3 and divisible by 3. Must not be set when the scaling block is present, in which case it reads back as `0` and `node_count` reports the number of nodes the cluster currently runs. Increasing this value scales the cluster out; decreasing it scales the cluster in.
                     format: int64
                     type: integer
                   name:
                     description: |-
-                      (String) The name of the cluster.
                       The name of the cluster.
                     type: string
                   nodeCount:
                     description: |-
-                      (Number) The last retrieved number of nodes.
                       The last retrieved number of nodes.
                     format: int64
                     type: integer
                   nodeDiskSize:
                     description: |-
-                      (Number) The disk size in gigabytes of the node. Must not be set when the scaling block is present, in which case it reads back as 0: the control plane picks the instance from the scaling policy and changes it as the cluster scales.
                       The disk size in gigabytes of the node. Must not be set when the scaling block is present, in which case it reads back as `0`: the control plane picks the instance from the scaling policy and changes it as the cluster scales.
                     format: int64
                     type: integer
                   nodeDnsNames:
                     description: |-
-                      (Set of String) The cluster nodes DNS names.
                       The cluster nodes DNS names.
                     items:
                       type: string
                     type: array
                   nodePrivateIps:
                     description: |-
-                      (Set of String) The cluster nodes private IP addresses.
                       The cluster nodes private IP addresses.
                     items:
                       type: string
                     type: array
                   nodeType:
                     description: |-
-                      (String) The instance type for cluster nodes (e.g. i8g.large). Required for Standard clusters. Must not be set when the scaling block is present, in which case it reads back as empty: the control plane picks the instance from the scaling policy and changes it as the cluster scales.
                       The instance type for cluster nodes (e.g. i8g.large). Required for Standard clusters. Must not be set when the scaling block is present, in which case it reads back as empty: the control plane picks the instance from the scaling policy and changes it as the cluster scales.
                     type: string
                   region:
                     description: |-
-                      east-1).
                       The cloud region to deploy the cluster in (e.g. us-east-1).
                     type: string
                   requestId:
                     description: |-
-                      (Number) The cluster creation request ID.
                       The cluster creation request ID.
                     format: int64
                     type: integer
                   scaling:
                     description: |-
-                      (Block List, Max: 1) Defines the autoscaling policy for an X Cloud cluster. Mutually exclusive with node_type and min_nodes. When present, the control plane manages scaling automatically based on the policy defined below. (see below for nested schema)
                       Defines the autoscaling policy for an X Cloud cluster. Mutually exclusive with `node_type` and `min_nodes`. When present, the control plane manages scaling automatically based on the policy defined below.
                     items:
                       properties:
                         instanceFamilies:
                           description: |-
-                            (List of String) Instance families to use for autoscaling (e.g. ["i8g"]). X Cloud scales within one predefined instance family. Manually restricting the cluster to a narrow set of instance types can limit the effectiveness of the autoscaling engine. Either instance_families or instance_types should be used.
                             Instance families to use for autoscaling (e.g. ["i8g"]). X Cloud scales within one predefined instance family. Manually restricting the cluster to a narrow set of instance types can limit the effectiveness of the autoscaling engine. Either instance_families or instance_types should be used.
                           items:
                             type: string
                           type: array
                         instanceTypes:
                           description: |-
-                            (List of String) Instance types to use for autoscaling (e.g. ["i8g.large", "i8g.xlarge"]). Consider using instance_families instead. Either instance_families or instance_types should be used.
                             Instance types to use for autoscaling (e.g. ["i8g.large", "i8g.xlarge"]). Consider using instance_families instead. Either instance_families or instance_types should be used.
                           items:
                             type: string
                           type: array
                         storagePolicy:
                           description: |-
-                            based autoscaling. (see below for nested schema)
                             Controls storage-based autoscaling.
                           items:
                             properties:
                               minGb:
                                 description: |-
-                                  (Number) Minimum physical storage, in gigabytes, to keep provisioned across the cluster. The cluster will not scale below this threshold. If omitted, ScyllaDB Cloud manages baseline storage dynamically.
                                   Minimum physical storage, in gigabytes, to keep provisioned across the cluster. The cluster will not scale below this threshold. If omitted, ScyllaDB Cloud manages baseline storage dynamically.
                                 format: int64
                                 type: integer
                               targetUtilization:
                                 description: |-
-                                  intensive workloads, values below 0.85 are recommended to provide headroom before the autoscaler triggers.
                                   Target storage utilization as a fraction between 0 and 1 (e.g. 0.75 = 75%). The autoscaler adds or removes capacity to maintain this level. Defaults to 0.8. Maximum is 0.9. For write-intensive workloads, values below 0.85 are recommended to provide headroom before the autoscaler triggers.
                                 type: number
                             type: object
                           type: array
                         vcpuPolicy:
                           description: |-
-                            based autoscaling. (see below for nested schema)
                             Controls compute-based autoscaling.
                           items:
                             properties:
                               min:
                                 description: |-
-                                  (Number) Minimum vCPU count to maintain across the cluster. The cluster will not scale below this compute baseline. If omitted, ScyllaDB Cloud manages compute capacity dynamically.
                                   Minimum vCPU count to maintain across the cluster. The cluster will not scale below this compute baseline. If omitted, ScyllaDB Cloud manages compute capacity dynamically.
                                 format: int64
                                 type: integer
@@ -652,17 +568,14 @@ spec:
                     type: array
                   scyllaVersion:
                     description: |-
-                      (String) Scylla version. The latest version will be used by default.
                       Scylla version. The latest version will be used by default.
                     type: string
                   status:
                     description: |-
-                      (String) The cluster status.
                       The cluster status.
                     type: string
                   userApiInterface:
                     description: |-
-                      (String) The type of user API interface. Valid values are CQL or ALTERNATOR.
                       The type of user API interface. Valid values are CQL or ALTERNATOR.
                     type: string
                 type: object

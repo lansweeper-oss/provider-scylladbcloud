@@ -1,27 +1,97 @@
 # Provider ScyllaDB Cloud
 
-`provider-scylladbcloud` is a [Crossplane](https://crossplane.io/) provider
-scylladbcloud that is built using [Upjet](https://github.com/crossplane/upjet) code
-generation tools and exposes XRM-conformant managed resources for the ScyllaDB Cloud
-API.
+`provider-scylladbcloud` is a [Crossplane](https://crossplane.io/) provider that
+manages [ScyllaDB Cloud](https://cloud.docs.scylladb.com/) resources from
+Kubernetes. Built with [Upjet](https://github.com/crossplane/upjet) code
+generation tools, it runs the upstream Terraform provider in-process and exposes
+XRM-conformant managed resources for clusters, serverless clusters, cluster
+connections, allowlist rules and VPC peerings.
+
+[![Upstream Terraform Provider](https://img.shields.io/badge/upstream_terraform_provider-v1.13.0-blue?logo=terraform)](https://github.com/scylladb/terraform-provider-scylladbcloud/tree/v1.13.0)
 
 ## Getting Started
 
-This scylladbcloud serves as a starting point for generating a new [Crossplane Provider](https://docs.crossplane.io/latest/packages/providers/) using the [`upjet`](https://github.com/crossplane/upjet) tooling. Please follow the guide linked below to generate a new Provider:
+### Prerequisites
 
-https://github.com/crossplane/upjet/blob/main/docs/generating-a-provider.md
+- A Kubernetes cluster with [Crossplane](https://crossplane.io/) installed
+- A ScyllaDB Cloud account and an API token
+
+### Authentication
+
+Create a Kubernetes secret containing your ScyllaDB Cloud credentials as JSON.
+`token` is required; `endpoint` is optional and defaults to
+`https://api.cloud.scylladb.com`:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: scylladbcloud-creds
+  namespace: crossplane-system
+type: Opaque
+stringData:
+  credentials: |
+    {
+      "token": "your-api-token",
+      "endpoint": "https://api.cloud.scylladb.com"
+    }
+```
+
+Then reference it in a `ProviderConfig`:
+
+```yaml
+apiVersion: scylladbcloud.crossplane.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: default
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      name: scylladbcloud-creds
+      namespace: crossplane-system
+      key: credentials
+```
+
+### Managed resources
+
+All resources are in the `scylladbcloud.scylladbcloud.crossplane.io` group
+(cluster-scoped) and `scylladbcloud.scylladbcloud.m.crossplane.io`
+(namespaced):
+
+| Kind | Terraform resource |
+|------|--------------------|
+| `Cluster` | `scylladbcloud_cluster` |
+| `ServerlessCluster` | `scylladbcloud_serverless_cluster` |
+| `ClusterConnection` | `scylladbcloud_cluster_connection` |
+| `AllowListRule` | `scylladbcloud_allowlist_rule` |
+| `VpcPeering` | `scylladbcloud_vpc_peering` |
+
+### Client cache
+
+Configuring a ScyllaDB Cloud client preloads deployment metadata (Scylla
+versions, cloud providers and regions) from the API. The provider keeps one
+client per set of credentials and rebuilds it after `--client-cache-ttl`
+(`CLIENT_CACHE_TTL`, default `30m`).
 
 ## Developing
 
 Run code-generation pipeline:
+
 ```console
-go run cmd/generator/main.go "$PWD"
+make generate
 ```
 
-Run against a Kubernetes cluster:
+Run against a Kubernetes cluster (out of cluster):
 
 ```console
 make run
+```
+
+or (deploying in-cluster):
+
+```console
+make local-deploy
 ```
 
 Build, push, and install:
@@ -36,7 +106,29 @@ Build binary:
 make build
 ```
 
+## Contributing
+
+Refer to Crossplane's [CONTRIBUTING.md] file for more information on how the
+Crossplane community prefers to work. The [Provider Development][provider-dev]
+guide may also be of use.
+
 ## Report a Bug
 
 For filing bugs, suggesting improvements, or requesting new features, please
-open an [issue](https://github.com/lansweeper-oss/provider-scylladbcloud/issues).
+open an [issue].
+
+## Code of conduct
+
+This project follows the [CNCF Code of Conduct](https://github.com/cncf/foundation/blob/master/code-of-conduct.md).
+
+It also adheres to the [Crossplane AI Policy](https://github.com/crossplane/crossplane/blob/main/AI_POLICY.md).
+
+## Licensing
+
+`provider-scylladbcloud` is under the Apache 2.0 [license](LICENSE).
+
+<!-- Links -->
+
+[CONTRIBUTING.md]: https://github.com/crossplane/crossplane/blob/main/contributing
+[issue]: https://github.com/lansweeper-oss/provider-scylladbcloud/issues
+[provider-dev]: https://github.com/crossplane/crossplane/blob/master/contributing/guide-provider-development.md

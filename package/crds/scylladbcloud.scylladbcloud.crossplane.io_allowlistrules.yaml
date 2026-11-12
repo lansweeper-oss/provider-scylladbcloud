@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.20.1
+    controller-gen.kubebuilder.io/version: v0.23.0
   name: allowlistrules.scylladbcloud.scylladbcloud.crossplane.io
 spec:
   group: scylladbcloud.scylladbcloud.crossplane.io
@@ -74,12 +74,10 @@ spec:
                 properties:
                   cidrBlock:
                     description: |-
-                      (String) Allowlisted CIDR block
                       Allowlisted CIDR block
                     type: string
                   clusterId:
                     description: |-
-                      (Number) Cluster ID
                       Cluster ID
                     format: int64
                     type: integer
@@ -99,12 +97,10 @@ spec:
                 properties:
                   cidrBlock:
                     description: |-
-                      (String) Allowlisted CIDR block
                       Allowlisted CIDR block
                     type: string
                   clusterId:
                     description: |-
-                      (Number) Cluster ID
                       Cluster ID
                     format: int64
                     type: integer
@@ -211,21 +207,18 @@ spec:
                 properties:
                   cidrBlock:
                     description: |-
-                      (String) Allowlisted CIDR block
                       Allowlisted CIDR block
                     type: string
                   clusterId:
                     description: |-
-                      (Number) Cluster ID
                       Cluster ID
                     format: int64
                     type: integer
                   id:
-                    description: (String) The ID of this resource.
+                    description: The ID of this resource.
                     type: string
                   ruleId:
                     description: |-
-                      (Number) Rule ID
                       Rule ID
                     format: int64
                     type: integer

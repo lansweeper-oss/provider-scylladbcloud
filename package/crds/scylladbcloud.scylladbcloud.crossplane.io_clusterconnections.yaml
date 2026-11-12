@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.20.1
+    controller-gen.kubebuilder.io/version: v0.23.0
   name: clusterconnections.scylladbcloud.scylladbcloud.crossplane.io
 spec:
   group: scylladbcloud.scylladbcloud.crossplane.io
@@ -74,14 +74,12 @@ spec:
                 properties:
                   cidrlist:
                     description: |-
-                      (List of String) List of CIDRs to route to the cluster connection
                       List of CIDRs to route to the cluster connection
                     items:
                       type: string
                     type: array
                   clusterId:
                     description: |-
-                      (Number) Cluster ID
                       Cluster ID
                     format: int64
                     type: integer
@@ -89,28 +87,23 @@ spec:
                     additionalProperties:
                       type: string
                     description: |-
-                      (Map of String) Connection Data
                       Connection Data
                     type: object
                     x-kubernetes-map-type: granular
                   datacenter:
                     description: |-
-                      (String) Cluster datacenter name
                       Cluster datacenter name
                     type: string
                   name:
                     description: |-
-                      (String) Cluster Connection Name
                       Cluster Connection Name
                     type: string
                   status:
                     description: |-
-                      (String) Connection Status
                       Connection Status
                     type: string
                   type:
                     description: |-
-                      (String) Connection Type
                       Connection Type
                     type: string
                 type: object
@@ -129,14 +122,12 @@ spec:
                 properties:
                   cidrlist:
                     description: |-
-                      (List of String) List of CIDRs to route to the cluster connection
                       List of CIDRs to route to the cluster connection
                     items:
                       type: string
                     type: array
                   clusterId:
                     description: |-
-                      (Number) Cluster ID
                       Cluster ID
                     format: int64
                     type: integer
@@ -144,28 +135,23 @@ spec:
                     additionalProperties:
                       type: string
                     description: |-
-                      (Map of String) Connection Data
                       Connection Data
                     type: object
                     x-kubernetes-map-type: granular
                   datacenter:
                     description: |-
-                      (String) Cluster datacenter name
                       Cluster datacenter name
                     type: string
                   name:
                     description: |-
-                      (String) Cluster Connection Name
                       Cluster Connection Name
                     type: string
                   status:
                     description: |-
-                      (String) Connection Status
                       Connection Status
                     type: string
                   type:
                     description: |-
-                      (String) Connection Type
                       Connection Type
                     type: string
                 type: object
@@ -283,14 +269,12 @@ spec:
                 properties:
                   cidrlist:
                     description: |-
-                      (List of String) List of CIDRs to route to the cluster connection
                       List of CIDRs to route to the cluster connection
                     items:
                       type: string
                     type: array
                   clusterId:
                     description: |-
-                      (Number) Cluster ID
                       Cluster ID
                     format: int64
                     type: integer
@@ -298,36 +282,30 @@ spec:
                     additionalProperties:
                       type: string
                     description: |-
-                      (Map of String) Connection Data
                       Connection Data
                     type: object
                     x-kubernetes-map-type: granular
                   datacenter:
                     description: |-
-                      (String) Cluster datacenter name
                       Cluster datacenter name
                     type: string
                   externalId:
                     description: |-
-                      (String) ID of the cloud resource that represents connection
                       ID of the cloud resource that represents connection
                     type: string
                   id:
-                    description: (String) Cluster connection ID
+                    description: Cluster connection ID
                     type: string
                   name:
                     description: |-
-                      (String) Cluster Connection Name
                       Cluster Connection Name
                     type: string
                   status:
                     description: |-
-                      (String) Connection Status
                       Connection Status
                     type: string
                   type:
                     description: |-
-                      (String) Connection Type
                       Connection Type
                     type: string
                 type: object

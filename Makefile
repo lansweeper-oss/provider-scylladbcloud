@@ -4,18 +4,20 @@
 PROJECT_NAME ?= provider-scylladbcloud
 PROJECT_REPO ?= github.com/lansweeper-oss/$(PROJECT_NAME)
 
-export TERRAFORM_VERSION ?= 1.5.7
+TERRAFORM_VERSION ?= 1.5.7
 
 # Do not allow a version of terraform greater than 1.5.x, due to versions 1.6+ being
 # licensed under BSL, which is not permitted.
 TERRAFORM_VERSION_VALID := $(shell [ "$(TERRAFORM_VERSION)" = "`printf "$(TERRAFORM_VERSION)\n1.6" | sort -V | head -n1`" ] && echo 1 || echo 0)
 
-export TERRAFORM_PROVIDER_SOURCE ?= scylladb/scylladbcloud
-export TERRAFORM_PROVIDER_REPO ?= https://github.com/scylladb/terraform-provider-scylladbcloud
+# The provider version lives here (not in go.mod): go.mod requires the provider as
+# v0.0.0-local and replaces it with the third_party/ source, see provider-source.
+export TERRAFORM_PROVIDER_ORG ?= scylladb
+export TERRAFORM_PROVIDER_SOURCE ?= $(TERRAFORM_PROVIDER_ORG)/scylladbcloud
+TERRAFORM_PROVIDER_DOWNLOAD_NAME ?= terraform-provider-scylladbcloud
+export TERRAFORM_PROVIDER_REPO ?= https://github.com/$(TERRAFORM_PROVIDER_ORG)/$(TERRAFORM_PROVIDER_DOWNLOAD_NAME)
 export TERRAFORM_PROVIDER_VERSION ?= 1.13.0
-export TERRAFORM_PROVIDER_DOWNLOAD_NAME ?= terraform-provider-scylladbcloud
-export TERRAFORM_PROVIDER_DOWNLOAD_URL_PREFIX ?= $(TERRAFORM_PROVIDER_REPO)/releases/download/v$(TERRAFORM_PROVIDER_VERSION)
-export TERRAFORM_NATIVE_PROVIDER_BINARY ?= $(TERRAFORM_PROVIDER_DOWNLOAD_NAME)_v$(TERRAFORM_PROVIDER_VERSION)
+TERRAFORM_PROVIDER_DOWNLOAD_URL_PREFIX ?= $(TERRAFORM_PROVIDER_REPO)/releases/download/v$(TERRAFORM_PROVIDER_VERSION)
 export TERRAFORM_DOCS_PATH ?= docs/resources
 
 
@@ -44,7 +46,7 @@ NPROCS ?= 1
 # to half the number of CPU cores.
 GO_TEST_PARALLEL := $(shell echo $$(( $(NPROCS) / 2 )))
 
-GO_REQUIRED_VERSION ?= 1.26
+GO_REQUIRED_VERSION ?= $(shell grep '^go ' go.mod | awk '{print $$2}')
 GOLANGCILINT_VERSION ?= 2.15.0
 GO_STATIC_PACKAGES = $(GO_PROJECT)/cmd/provider $(GO_PROJECT)/cmd/generator
 GO_LDFLAGS += -X $(GO_PROJECT)/internal/version.Version=$(VERSION)
@@ -55,7 +57,11 @@ GO_SUBDIRS += cmd internal apis
 # Setup Kubernetes tools
 
 KIND_VERSION = v0.33.0
+KUBECTL_VERSION = v1.37.2
 UPTEST_VERSION = v2.2.0
+# uptest itself comes from github.com/crossplane/uptest (build/makelib/k8s_tools.mk).
+# crddiff is not part of any crossplane/uptest release: per the crossplane/uptest README
+# it "still resides" in github.com/upbound/uptest, see the crddiff target.
 CRDDIFF_VERSION = v0.12.1
 CROSSPLANE_CLI_VERSION = v2.5.0
 # for e2e testing
@@ -65,17 +71,17 @@ CROSSPLANE_VERSION = 2.4.3
 # ====================================================================================
 # Setup Images
 
-REGISTRY_ORGS ?= ghcr.io/crossplane-contrib
+REGISTRY_ORGS ?= ghcr.io/lansweeper-oss
 IMAGES = $(PROJECT_NAME)
 -include build/makelib/imagelight.mk
 
 # ====================================================================================
 # Setup XPKG
 
-XPKG_REG_ORGS ?= ghcr.io/crossplane-contrib
+XPKG_REG_ORGS ?= xpkg.upbound.io/lansweeper
 # NOTE(hasheddan): skip promoting on xpkg.crossplane.io as channel tags are
 # inferred.
-XPKG_REG_ORGS_NO_PROMOTE ?= ghcr.io/crossplane-contrib
+XPKG_REG_ORGS_NO_PROMOTE ?= xpkg.upbound.io/lansweeper
 XPKGS = $(PROJECT_NAME)
 -include build/makelib/xpkg.mk
 
@@ -99,7 +105,7 @@ xpkg.build.provider-scylladbcloud: do.build.images
 
 # NOTE(hasheddan): we ensure up is installed prior to running platform-specific
 # build steps in parallel to avoid encountering an installation race condition.
-build.init: $(UP) $(CROSSPLANE_CLI) check-terraform-version
+build.init: $(UP) $(CROSSPLANE_CLI) check-terraform-version provider-source
 
 # ====================================================================================
 # Setup Terraform for fetching provider schema
@@ -121,38 +127,56 @@ $(TERRAFORM): check-terraform-version
 	@rm -fr $(TOOLS_HOST_DIR)/tmp-terraform
 	@$(OK) installing terraform $(HOSTOS)-$(HOSTARCH)
 
+TERRAFORM_PROVIDER_PLUGIN_DIR := $(TERRAFORM_WORKDIR)/plugins
+TERRAFORM_PROVIDER_CLI_CONFIG := $(TERRAFORM_WORKDIR)/dev.tfrc
+
+# Per-version stamp: bumping TERRAFORM_PROVIDER_VERSION invalidates the cached
+# docs clone and provider source.
+PROVIDER_VERSION_STAMP := $(WORK_DIR)/.provider-version-$(TERRAFORM_PROVIDER_VERSION)
+
+$(PROVIDER_VERSION_STAMP):
+	@rm -rf $(WORK_DIR)/.provider-version-* "$(WORK_DIR)/$(TERRAFORM_PROVIDER_SOURCE)" "$(PROVIDER_SOURCE_DIR)"
+	@mkdir -p $(WORK_DIR) && touch $@
+
 $(TERRAFORM_PROVIDER_SCHEMA): $(TERRAFORM)
 	@$(INFO) generating provider schema for $(TERRAFORM_PROVIDER_SOURCE) $(TERRAFORM_PROVIDER_VERSION)
-	@mkdir -p $(TERRAFORM_WORKDIR)
+	@rm -rf $(TERRAFORM_PROVIDER_PLUGIN_DIR)
+	@mkdir -p $(TERRAFORM_WORKDIR) $(TERRAFORM_PROVIDER_PLUGIN_DIR)
+	@curl -fsSL $(TERRAFORM_PROVIDER_DOWNLOAD_URL_PREFIX)/$(TERRAFORM_PROVIDER_DOWNLOAD_NAME)_$(TERRAFORM_PROVIDER_VERSION)_$(SAFEHOST_PLATFORM).zip \
+		-o $(TERRAFORM_WORKDIR)/provider.zip
+	@unzip -o $(TERRAFORM_WORKDIR)/provider.zip -d $(TERRAFORM_PROVIDER_PLUGIN_DIR)
+	@chmod +x $(TERRAFORM_PROVIDER_PLUGIN_DIR)/$(TERRAFORM_PROVIDER_DOWNLOAD_NAME)_v$(TERRAFORM_PROVIDER_VERSION)*
+	@printf 'provider_installation {\n  dev_overrides {\n    "%s" = "%s"\n  }\n}\n' \
+		"$(shell echo $(TERRAFORM_PROVIDER_SOURCE) | tr '[:upper:]' '[:lower:]')" \
+		"$(abspath $(TERRAFORM_PROVIDER_PLUGIN_DIR))" \
+		> $(TERRAFORM_PROVIDER_CLI_CONFIG)
 	@echo '{"terraform":[{"required_providers":[{"provider":{"source":"'"$(TERRAFORM_PROVIDER_SOURCE)"'","version":"'"$(TERRAFORM_PROVIDER_VERSION)"'"}}],"required_version":"'"$(TERRAFORM_VERSION)"'"}]}' > $(TERRAFORM_WORKDIR)/main.tf.json
-	@$(TERRAFORM) -chdir=$(TERRAFORM_WORKDIR) init > $(TERRAFORM_WORKDIR)/terraform-logs.txt 2>&1
-	@$(TERRAFORM) -chdir=$(TERRAFORM_WORKDIR) providers schema -json=true > $(TERRAFORM_PROVIDER_SCHEMA) 2>> $(TERRAFORM_WORKDIR)/terraform-logs.txt
+	@TF_CLI_CONFIG_FILE=$(abspath $(TERRAFORM_PROVIDER_CLI_CONFIG)) $(TERRAFORM) -chdir=$(TERRAFORM_WORKDIR) init > $(TERRAFORM_WORKDIR)/terraform-logs.txt 2>&1 || true
+	@TF_CLI_CONFIG_FILE=$(abspath $(TERRAFORM_PROVIDER_CLI_CONFIG)) $(TERRAFORM) -chdir=$(TERRAFORM_WORKDIR) providers schema -json=true > $(TERRAFORM_PROVIDER_SCHEMA) 2>> $(TERRAFORM_WORKDIR)/terraform-logs.txt
 	@$(OK) generating provider schema for $(TERRAFORM_PROVIDER_SOURCE) $(TERRAFORM_PROVIDER_VERSION)
 
-pull-docs:
+pull-docs: $(PROVIDER_VERSION_STAMP)
 	@if [ ! -d "$(WORK_DIR)/$(TERRAFORM_PROVIDER_SOURCE)" ]; then \
   		mkdir -p "$(WORK_DIR)/$(TERRAFORM_PROVIDER_SOURCE)" && \
 		git clone -c advice.detachedHead=false --depth 1 --filter=blob:none --branch "v$(TERRAFORM_PROVIDER_VERSION)" --sparse "$(TERRAFORM_PROVIDER_REPO)" "$(WORK_DIR)/$(TERRAFORM_PROVIDER_SOURCE)"; \
 	fi
 	@git -C "$(WORK_DIR)/$(TERRAFORM_PROVIDER_SOURCE)" sparse-checkout set "$(TERRAFORM_DOCS_PATH)"
 
-# ------------------------------------------------------------------------------------
-# Provider source extraction for the no-fork (in-process) runtime
+$(TERRAFORM_PROVIDER_SCHEMA:.json=.generated.lst): $(TERRAFORM_PROVIDER_SCHEMA)
+	@$(INFO) generating resource list from provider schema
+	@python3 -c "import json,sys; d=json.load(open(sys.argv[1])); p=next(iter(d['provider_schemas'])); print(json.dumps(list(d['provider_schemas'][p]['resource_schemas'].keys())))" $(TERRAFORM_PROVIDER_SCHEMA) > config/generated.lst
+	@$(OK) generating resource list from provider schema
+
+# ====================================================================================
+# Provider source extraction for the no-fork (in-process) runtime.
 #
 # The upstream provider constructor lives in internal/provider, which Go forbids
 # importing from another module. We clone the provider at the pinned version into
 # third_party/ and add a public pkg/provider shim inside that module tree, which is
 # allowed to import internal/. The go.mod has a replace directive pointing at this
-# directory so config/ can import pkg/provider directly.
+# directory so config/ and internal/clients can import pkg/provider directly.
 # third_party/ is gitignored; fresh checkouts get it through build.init,
 # generate.init and go.modules.download.
-
-# Changing TERRAFORM_PROVIDER_VERSION invalidates the cached docs and provider source.
-PROVIDER_VERSION_STAMP := $(WORK_DIR)/.provider-version-$(TERRAFORM_PROVIDER_VERSION)
-$(PROVIDER_VERSION_STAMP):
-	@rm -rf $(WORK_DIR)/.provider-version-* "$(WORK_DIR)/$(TERRAFORM_PROVIDER_SOURCE)" "$(PROVIDER_SOURCE_DIR)"
-	@mkdir -p $(WORK_DIR) && touch $@
-
 PROVIDER_SOURCE_DIR := third_party/$(TERRAFORM_PROVIDER_DOWNLOAD_NAME)
 
 provider-source: $(PROVIDER_VERSION_STAMP)
@@ -167,17 +191,21 @@ provider-source: $(PROVIDER_VERSION_STAMP)
 		$(OK) extracting $(TERRAFORM_PROVIDER_SOURCE) provider source v$(TERRAFORM_PROVIDER_VERSION); \
 	fi
 
+generate.init: $(TERRAFORM_PROVIDER_SCHEMA) pull-docs provider-source
+generate.done: copy-examples clean-descriptions
+
+go.modules.download: provider-source
+
+clean: provider-source-clean
 provider-source-clean:
 	@rm -rf "$(PROVIDER_SOURCE_DIR)"
 
-pull-docs: $(PROVIDER_VERSION_STAMP)
-build.init: provider-source
-go.modules.download: provider-source
-clean: provider-source-clean
+clean-descriptions:
+	@$(INFO) cleaning generated field descriptions
+	@python3 scripts/clean_descriptions.py package/crds/
+	@$(OK) field descriptions clean
 
-generate.init: $(TERRAFORM_PROVIDER_SCHEMA) pull-docs provider-source
-
-.PHONY: $(TERRAFORM_PROVIDER_SCHEMA) pull-docs check-terraform-version provider-source provider-source-clean
+.PHONY: $(TERRAFORM_PROVIDER_SCHEMA) pull-docs check-terraform-version clean-descriptions provider-source provider-source-clean
 # ====================================================================================
 # Targets
 
@@ -216,35 +244,43 @@ run: go.build
 # ====================================================================================
 # End to End Testing
 CROSSPLANE_NAMESPACE = crossplane-system
+
+# Required by build/makelib/uptest.mk - tells the e2e target which make target
+# deploys the provider into the local Kind cluster.
+UPTEST_LOCAL_DEPLOY_TARGET = local.xpkg.deploy.provider.$(PROJECT_NAME)
+
+# Default to the checked-in e2e manifests; override from the command line when
+# running the cloud-credentials-based suite (UPTEST_INPUT_MANIFESTS=...).
+UPTEST_INPUT_MANIFESTS ?= $(shell find e2e/manifests -name '*.yaml' 2>/dev/null | sort | tr '\n' ',' | sed 's/,$$//')
+
+# No external datasource needed for the local Kind-based tests.
+UPTEST_DATASOURCE_PATH ?= /dev/null
+
+UPTEST_ARGS += --default-conditions="Test"
+UPTEST_SETUP_SCRIPT = cluster/test/setup.sh
+
 -include build/makelib/local.xpkg.mk
 -include build/makelib/controlplane.mk
+-include build/makelib/uptest.mk
 
-# This target requires the following environment variables to be set:
-# - UPTEST_EXAMPLE_LIST, a comma-separated list of examples to test
-#   To ensure the proper functioning of the end-to-end test resource pre-deletion hook, it is crucial to arrange your resources appropriately.
-#   You can check the basic implementation here: https://github.com/crossplane/uptest/blob/main/internal/templates/03-delete.yaml.tmpl.
-# - UPTEST_CLOUD_CREDENTIALS (optional), multiple sets of AWS IAM User credentials specified as key=value pairs.
-#   The support keys are currently `DEFAULT` and `PEER`. So, an example for the value of this env. variable is:
-#   DEFAULT='[default]
-#   aws_access_key_id = REDACTED
-#   aws_secret_access_key = REDACTED'
-#   PEER='[default]
-#   aws_access_key_id = REDACTED
-#   aws_secret_access_key = REDACTED'
-#   The associated `ProviderConfig`s will be named as `default` and `peer`.
-# - UPTEST_DATASOURCE_PATH (optional), please see https://github.com/crossplane/uptest#injecting-dynamic-values-and-datasource
-uptest: $(UPTEST) $(KUBECTL) $(CHAINSAW) $(CROSSPLANE_CLI)
-	@$(INFO) running automated tests
-	@KUBECTL=$(KUBECTL) CHAINSAW=$(CHAINSAW) CROSSPLANE_CLI=$(CROSSPLANE_CLI) CROSSPLANE_NAMESPACE=$(CROSSPLANE_NAMESPACE) $(UPTEST) e2e "${UPTEST_EXAMPLE_LIST}" --data-source="${UPTEST_DATASOURCE_PATH}" --setup-script=cluster/test/setup.sh --default-conditions="Test" || $(FAIL)
-	@$(OK) running automated tests
-
-local-deploy: build controlplane.up local.xpkg.deploy.provider.$(PROJECT_NAME)
+local-deploy: build.all controlplane.up local.xpkg.deploy.provider.$(PROJECT_NAME)
 	@$(INFO) running locally built provider
 	@$(KUBECTL) wait provider.pkg $(PROJECT_NAME) --for condition=Healthy --timeout 5m
 	@$(KUBECTL) -n crossplane-system wait --for=condition=Available deployment --all --timeout=5m
 	@$(OK) running locally built provider
 
-e2e: local-deploy uptest
+# Pruning stale xpkg files before syncing ensures only the current build is deployed.
+# Without this, local.xpkg.sync picks up old xpkg files alphabetically (e.g. v7 > v22)
+# and installs outdated CRDs in the local Kind cluster.
+local.xpkg.sync: prune.stale.xpkg
+
+prune.stale.xpkg:
+	@$(INFO) pruning stale xpkg artifacts
+	@for dir in $(OUTPUT_DIR)/xpkg/linux_*/; do \
+		[ -d "$$dir" ] || continue; \
+		ls -t "$$dir"*.xpkg 2>/dev/null | tail -n +2 | xargs rm -f 2>/dev/null || true; \
+	done
+	@$(OK) pruning stale xpkg artifacts
 
 crddiff: $(UPTEST)
 	@$(INFO) Checking breaking CRD schema changes
@@ -254,7 +290,7 @@ crddiff: $(UPTEST)
 			continue ; \
 		fi ; \
 		echo "Checking $${crd} for breaking API changes..." ; \
-		changes_detected=$$(go run github.com/crossplane/uptest/cmd/crddiff@$(CRDDIFF_VERSION) revision --enable-upjet-extensions <(git cat-file -p "$${GITHUB_BASE_REF}:$${crd}") "$${crd}" 2>&1) ; \
+		changes_detected=$$(go run github.com/upbound/uptest/cmd/crddiff@$(CRDDIFF_VERSION) revision --enable-upjet-extensions <(git cat-file -p "$${GITHUB_BASE_REF}:$${crd}") "$${crd}" 2>&1) ; \
 		if [[ $$? != 0 ]] ; then \
 			printf "\033[31m"; echo "Breaking change detected!"; printf "\033[0m" ; \
 			echo "$${changes_detected}" ; \
@@ -263,9 +299,13 @@ crddiff: $(UPTEST)
 	done
 	@$(OK) Checking breaking CRD schema changes
 
-schema-version-diff:
+schema-version-diff: $(TERRAFORM_PROVIDER_SCHEMA:.json=.generated.lst)
 	@$(INFO) Checking for native state schema version changes
-	@export PREV_PROVIDER_VERSION=$$(git cat-file -p "${GITHUB_BASE_REF}:Makefile" | sed -nr 's/^export[[:space:]]*TERRAFORM_PROVIDER_VERSION[[:space:]]*:=[[:space:]]*(.+)/\1/p'); \
+	@if ! git cat-file -e "$${GITHUB_BASE_REF}:Makefile" 2>/dev/null; then \
+		echo "Makefile does not exist in the $${GITHUB_BASE_REF} branch (initial release). Skipping..."; \
+		exit 0; \
+	fi; \
+	export PREV_PROVIDER_VERSION=$$(git cat-file -p "$${GITHUB_BASE_REF}:Makefile" | sed -nr 's/^export[[:space:]]*TERRAFORM_PROVIDER_VERSION[[:space:]]*[?:]?=[[:space:]]*(.+)/\1/p'); \
 	echo Detected previous Terraform provider version: $${PREV_PROVIDER_VERSION}; \
 	echo Current Terraform provider version: $${TERRAFORM_PROVIDER_VERSION}; \
 	mkdir -p $(WORK_DIR); \
@@ -273,7 +313,65 @@ schema-version-diff:
 	./scripts/version_diff.py config/generated.lst "$(WORK_DIR)/schema.json.$${PREV_PROVIDER_VERSION}" config/schema.json
 	@$(OK) Checking for native state schema version changes
 
-.PHONY: cobertura submodules fallthrough run crds.clean
+.PHONY: e2e cobertura local-deploy submodules fallthrough run crds.clean clean prune.stale.xpkg
+
+# ====================================================================================
+# Package Extensions (README, SBOM)
+
+EXTENSIONS_DIR := $(ROOT_DIR)/extensions
+SYFT_VERSION ?= 1.57.1
+SYFT := $(TOOLS_HOST_DIR)/syft-$(SYFT_VERSION)
+UP_VERSION ?= v0.56.0
+UP_CHANNEL ?= stable
+UP := $(TOOLS_HOST_DIR)/up-$(UP_VERSION)
+
+$(SYFT):
+	@$(INFO) installing syft $(SYFT_VERSION)
+	@mkdir -p $(TOOLS_HOST_DIR)
+	@curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b $(TOOLS_HOST_DIR) v$(SYFT_VERSION) || $(FAIL)
+	@mv $(TOOLS_HOST_DIR)/syft $(SYFT)
+	@$(OK) installing syft $(SYFT_VERSION)
+
+$(UP):
+	@$(INFO) installing up $(UP_VERSION)
+	@mkdir -p $(TOOLS_HOST_DIR)
+	@curl -fsSLo $(UP) https://cli.upbound.io/$(UP_CHANNEL)/$(UP_VERSION)/bin/$(SAFEHOST_PLATFORM)/up || $(FAIL)
+	@chmod +x $(UP)
+	@$(OK) installing up $(UP_VERSION)
+
+sbom: $(SYFT)
+	@$(INFO) Generating SPDX SBOM
+	@mkdir -p $(EXTENSIONS_DIR)/sbom
+	@$(SYFT) scan dir:. --source-name $(PROJECT_NAME) --source-version $(VERSION) -o spdx-json=$(EXTENSIONS_DIR)/sbom/sbom.spdx.json
+	@$(OK) SBOM generated at $(EXTENSIONS_DIR)/sbom/sbom.spdx.json
+
+readme: README.md.tmpl
+	@$(INFO) Rendering README.md from template
+	@envsubst '$$TERRAFORM_PROVIDER_VERSION $$TERRAFORM_PROVIDER_REPO' < $(ROOT_DIR)/README.md.tmpl > $(ROOT_DIR)/README.md
+	@$(OK) README.md rendered
+
+xpkg.extensions: sbom readme
+	@$(INFO) Preparing package extensions
+	@mkdir -p $(EXTENSIONS_DIR)/icons
+	@cp $(ROOT_DIR)/icon.svg $(EXTENSIONS_DIR)/icons/icon.svg
+	@mkdir -p $(EXTENSIONS_DIR)/readme
+	@cp $(ROOT_DIR)/README.md $(EXTENSIONS_DIR)/readme/readme.md
+	@rm -rf $(EXTENSIONS_DIR)/release-notes
+	@notes=$$(gh release view "$(VERSION)" --repo "$${GITHUB_REPOSITORY:-lansweeper-oss/$(PROJECT_NAME)}" --json body -q .body 2>/dev/null || true); \
+	if [ -z "$$notes" ]; then \
+		echo "No GitHub release notes found for $(VERSION), skipping"; \
+	else \
+		mkdir -p $(EXTENSIONS_DIR)/release-notes; \
+		printf '%s\n' "$$notes" > $(EXTENSIONS_DIR)/release-notes/release_notes.md; \
+	fi
+	@$(OK) Package extensions prepared at $(EXTENSIONS_DIR)
+
+xpkg.append: xpkg.extensions $(UP)
+	@$(INFO) Appending extensions to $(XPKG_REG_ORGS)/$(PROJECT_NAME):$(VERSION)
+	@$(UP) alpha xpkg append --extensions-root=$(EXTENSIONS_DIR) $(XPKG_REG_ORGS)/$(PROJECT_NAME):$(VERSION) || $(FAIL)
+	@$(OK) Appended extensions to $(XPKG_REG_ORGS)/$(PROJECT_NAME):$(VERSION)
+
+.PHONY: readme sbom xpkg.extensions xpkg.append
 
 # ====================================================================================
 # Special Targets
@@ -299,3 +397,8 @@ help-special: crossplane.help
 # TODO(negz): Update CI to use these targets.
 vendor: modules.download
 vendor.check: modules.check
+
+# Copy examples-generated to examples
+copy-examples:
+	@$(INFO) copying generated examples to examples
+	@cp -r examples-generated/* examples/ || $(FAIL)

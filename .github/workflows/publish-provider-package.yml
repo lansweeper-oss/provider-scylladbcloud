@@ -4,23 +4,107 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version string to use while publishing the package (e.g. v1.0.0-alpha.1)"
-        default: ''
-        required: false
-      go-version:
-        description: 'Go version to use if building needs to be done'
-        default: '1.24'
+        description: Version string to use while publishing the package (e.g. v1.0.0-alpha.1)
+        default: ""
         required: false
 
 jobs:
   publish-provider-package:
-    uses: crossplane-contrib/provider-workflows/.github/workflows/publish-provider.yml@d8bb2978c8987635b2fddb5bd9c2868bd14117b0 # main
-    with:
-      repository: provider-scylladbcloud
-      version: ${{ github.event.inputs.version }}
-      go-version: ${{ github.event.inputs.go-version }}
-      cleanup-disk: true
-    secrets:
-      GHCR_PAT: ${{ secrets.GITHUB_TOKEN }}
-      XPKG_MIRROR_TOKEN: ${{ secrets.XPKG_MIRROR_TOKEN }}
-      XPKG_MIRROR_ACCESS_ID: ${{ secrets.XPKG_MIRROR_ACCESS_ID }}
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+      attestations: write
+      id-token: write
+    steps:
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: all
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Login to GHCR
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+
+      - name: Fetch History
+        run: git fetch --prune --unshallow
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Vendor Dependencies
+        run: make vendor vendor.check
+
+      - name: Find the version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            make common.buildvars >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build Artifacts
+        run: |-
+          make -j2 XPKG_REG_ORGS="ghcr.io/${{ github.repository_owner }}" XPKG_REG_ORGS_NO_PROMOTE="ghcr.io/${{ github.repository_owner }}" BRANCH_NAME="main" VERSION="${{ steps.version.outputs.VERSION }}" build.all
+        env:
+          BUILD_ARGS: "--load"
+
+      - name: Publish Artifacts
+        run: |-
+          make -j2 REGISTRY_ORGS="" XPKG_REG_ORGS="ghcr.io/${{ github.repository_owner }}" XPKG_REG_ORGS_NO_PROMOTE="ghcr.io/${{ github.repository_owner }}" BRANCH_NAME="main" VERSION="${{ steps.version.outputs.VERSION }}" publish
+
+  mirror-to-upbound:
+    needs: publish-provider-package
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.version != '' }}
+    steps:
+      - name: Setup crane
+        uses: imjasonh/setup-crane@feee3b6bb0d4c68370f256a4502498c9227e5c6b # v0.7
+
+      - name: Login to Upbound
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: xpkg.upbound.io
+          username: ${{ secrets.XPKG_MIRROR_ACCESS_ID }}
+          password: ${{ secrets.XPKG_MIRROR_TOKEN }}
+
+      - name: Mirror to Upbound
+        run: |
+          crane copy ghcr.io/${{ github.repository }}:${{ github.event.inputs.version }} xpkg.upbound.io/lansweeper/provider-scylladbcloud:${{ github.event.inputs.version }} --allow-nondistributable-artifacts
+
+  add-extensions:
+    needs:
+      - publish-provider-package
+      - mirror-to-upbound
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+
+      - name: Login to Upbound Marketplace
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: xpkg.upbound.io
+          username: ${{ secrets.XPKG_MIRROR_ACCESS_ID }}
+          password: ${{ secrets.XPKG_MIRROR_TOKEN }}
+
+      - name: Append extensions
+        run: make xpkg.append VERSION=${{ github.event.inputs.version }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

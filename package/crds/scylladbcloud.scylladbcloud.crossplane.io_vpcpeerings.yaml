@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.20.1
+    controller-gen.kubebuilder.io/version: v0.23.0
   name: vpcpeerings.scylladbcloud.scylladbcloud.crossplane.io
 spec:
   group: scylladbcloud.scylladbcloud.crossplane.io
@@ -74,40 +74,33 @@ spec:
                 properties:
                   allowCql:
                     description: |-
-                      (Boolean) Whether to allow CQL traffic
                       Whether to allow CQL traffic
                     type: boolean
                   clusterId:
                     description: |-
-                      (Number) Cluster ID
                       Cluster ID
                     format: int64
                     type: integer
                   datacenter:
                     description: |-
-                      (String) Cluster datacenter name
                       Cluster datacenter name
                     type: string
                   peerAccountId:
                     description: |-
-                      (String) Peer Account ID
                       Peer Account ID
                     type: string
                   peerCidrBlocks:
                     description: |-
-                      (List of String) Peer VPC CIDR block list
                       Peer VPC CIDR block list
                     items:
                       type: string
                     type: array
                   peerRegion:
                     description: |-
-                      (String) Peer VPC region
                       Peer VPC region
                     type: string
                   peerVpcId:
                     description: |-
-                      (String) Peer VPC ID
                       Peer VPC ID
                     type: string
                 type: object
@@ -126,40 +119,33 @@ spec:
                 properties:
                   allowCql:
                     description: |-
-                      (Boolean) Whether to allow CQL traffic
                       Whether to allow CQL traffic
                     type: boolean
                   clusterId:
                     description: |-
-                      (Number) Cluster ID
                       Cluster ID
                     format: int64
                     type: integer
                   datacenter:
                     description: |-
-                      (String) Cluster datacenter name
                       Cluster datacenter name
                     type: string
                   peerAccountId:
                     description: |-
-                      (String) Peer Account ID
                       Peer Account ID
                     type: string
                   peerCidrBlocks:
                     description: |-
-                      (List of String) Peer VPC CIDR block list
                       Peer VPC CIDR block list
                     items:
                       type: string
                     type: array
                   peerRegion:
                     description: |-
-                      (String) Peer VPC region
                       Peer VPC region
                     type: string
                   peerVpcId:
                     description: |-
-                      (String) Peer VPC ID
                       Peer VPC ID
                     type: string
                 type: object
@@ -277,58 +263,47 @@ spec:
                 properties:
                   allowCql:
                     description: |-
-                      (Boolean) Whether to allow CQL traffic
                       Whether to allow CQL traffic
                     type: boolean
                   clusterId:
                     description: |-
-                      (Number) Cluster ID
                       Cluster ID
                     format: int64
                     type: integer
                   connectionId:
                     description: |-
-                      (String) VPC peering connection id
                       VPC peering connection id
                     type: string
                   datacenter:
                     description: |-
-                      (String) Cluster datacenter name
                       Cluster datacenter name
                     type: string
                   id:
-                    description: (String) The ID of this resource.
+                    description: The ID of this resource.
                     type: string
                   networkLink:
                     description: |-
-                      (String) (GCP) Cluster VPC network self_link
-                      (GCP) Cluster VPC network self_link
                     type: string
                   peerAccountId:
                     description: |-
-                      (String) Peer Account ID
                       Peer Account ID
                     type: string
                   peerCidrBlocks:
                     description: |-
-                      (List of String) Peer VPC CIDR block list
                       Peer VPC CIDR block list
                     items:
                       type: string
                     type: array
                   peerRegion:
                     description: |-
-                      (String) Peer VPC region
                       Peer VPC region
                     type: string
                   peerVpcId:
                     description: |-
-                      (String) Peer VPC ID
                       Peer VPC ID
                     type: string
                   vpcPeeringId:
                     description: |-
-                      (Number) Cluster VPC Peering ID
                       Cluster VPC Peering ID
                     format: int64
                     type: integer

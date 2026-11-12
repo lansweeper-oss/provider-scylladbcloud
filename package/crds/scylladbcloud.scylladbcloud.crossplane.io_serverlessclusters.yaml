@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.20.1
+    controller-gen.kubebuilder.io/version: v0.23.0
   name: serverlessclusters.scylladbcloud.scylladbcloud.crossplane.io
 spec:
   group: scylladbcloud.scylladbcloud.crossplane.io
@@ -74,34 +74,28 @@ spec:
                 properties:
                   clusterId:
                     description: |-
-                      (Number) Serverless cluster id
                       Serverless cluster id
                     format: int64
                     type: integer
                   enableDns:
                     description: |-
-                      (Boolean) Whether to enable CNAME for seed nodes
                       Whether to enable CNAME for seed nodes
                     type: boolean
                   freeTier:
                     description: |-
-                      (Boolean) Whether a cluster is in a free tier
                       Whether a cluster is in a free tier
                     type: boolean
                   hours:
                     description: |-
-                      (Number) Hours for cluster to last
                       Hours for cluster to last
                     format: int64
                     type: integer
                   name:
                     description: |-
-                      (String) Serverless cluster name
                       Serverless cluster name
                     type: string
                   units:
                     description: |-
-                      (Number) Processing units
                       Processing units
                     format: int64
                     type: integer
@@ -121,34 +115,28 @@ spec:
                 properties:
                   clusterId:
                     description: |-
-                      (Number) Serverless cluster id
                       Serverless cluster id
                     format: int64
                     type: integer
                   enableDns:
                     description: |-
-                      (Boolean) Whether to enable CNAME for seed nodes
                       Whether to enable CNAME for seed nodes
                     type: boolean
                   freeTier:
                     description: |-
-                      (Boolean) Whether a cluster is in a free tier
                       Whether a cluster is in a free tier
                     type: boolean
                   hours:
                     description: |-
-                      (Number) Hours for cluster to last
                       Hours for cluster to last
                     format: int64
                     type: integer
                   name:
                     description: |-
-                      (String) Serverless cluster name
                       Serverless cluster name
                     type: string
                   units:
                     description: |-
-                      (Number) Processing units
                       Processing units
                     format: int64
                     type: integer
@@ -251,37 +239,31 @@ spec:
                 properties:
                   clusterId:
                     description: |-
-                      (Number) Serverless cluster id
                       Serverless cluster id
                     format: int64
                     type: integer
                   enableDns:
                     description: |-
-                      (Boolean) Whether to enable CNAME for seed nodes
                       Whether to enable CNAME for seed nodes
                     type: boolean
                   freeTier:
                     description: |-
-                      (Boolean) Whether a cluster is in a free tier
                       Whether a cluster is in a free tier
                     type: boolean
                   hours:
                     description: |-
-                      (Number) Hours for cluster to last
                       Hours for cluster to last
                     format: int64
                     type: integer
                   id:
-                    description: (String) The ID of this resource.
+                    description: The ID of this resource.
                     type: string
                   name:
                     description: |-
-                      (String) Serverless cluster name
                       Serverless cluster name
                     type: string
                   units:
                     description: |-
-                      (Number) Processing units
                       Processing units
                     format: int64
                     type: integer
