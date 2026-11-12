@@ -5,6 +5,7 @@ go 1.27.4
 tool golang.org/x/tools/cmd/goimports
 
 require (
+	dario.cat/mergo v1.0.2
 	github.com/alecthomas/kingpin/v2 v2.4.0
 	github.com/crossplane/crossplane-runtime/v2 v2.5.0-rc.0.0.20260908074656-9b2fb6b1d1ff
 	github.com/crossplane/crossplane-tools v0.0.0-20260719180100-659f1dc036c5
@@ -23,7 +24,6 @@ require (
 
 require (
 	cloud.google.com/go v0.123.0 // indirect
-	dario.cat/mergo v1.0.2 // indirect
 	github.com/agext/levenshtein v1.2.3 // indirect
 	github.com/alecthomas/units v0.0.0-20240927000941-0f3dac36c52b // indirect
 	github.com/antchfx/htmlquery v1.2.4 // indirect

@@ -9,16 +9,26 @@ import (
 
 	"github.com/crossplane/upjet/v2/pkg/controller"
 
-	resource "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/namespaced/null/resource"
+	rule "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/namespaced/allowlist/rule"
+	connection "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/namespaced/cluster/connection"
 	providerconfig "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/namespaced/providerconfig"
+	cluster "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/namespaced/scylladbcloud/cluster"
+	stack "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/namespaced/scylladbcloud/stack"
+	clusterserverless "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/namespaced/serverless/cluster"
+	peering "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/namespaced/vpc/peering"
 )
 
 // Setup creates all controllers with the supplied logger and adds them to
 // the supplied manager.
 func Setup(mgr ctrl.Manager, o controller.Options) error {
 	for _, setup := range []func(ctrl.Manager, controller.Options) error{
-		resource.Setup,
+		rule.Setup,
+		connection.Setup,
 		providerconfig.Setup,
+		cluster.Setup,
+		stack.Setup,
+		clusterserverless.Setup,
+		peering.Setup,
 	} {
 		if err := setup(mgr, o); err != nil {
 			return err
@@ -31,8 +41,13 @@ func Setup(mgr ctrl.Manager, o controller.Options) error {
 // the supplied manager gated.
 func SetupGated(mgr ctrl.Manager, o controller.Options) error {
 	for _, setup := range []func(ctrl.Manager, controller.Options) error{
-		resource.SetupGated,
+		rule.SetupGated,
+		connection.SetupGated,
 		providerconfig.SetupGated,
+		cluster.SetupGated,
+		stack.SetupGated,
+		clusterserverless.SetupGated,
+		peering.SetupGated,
 	} {
 		if err := setup(mgr, o); err != nil {
 			return err
@@ -44,8 +59,13 @@ func SetupGated(mgr ctrl.Manager, o controller.Options) error {
 // SetupWebhookWithManager registers conversion webhooks for all resource kinds in the group.
 func SetupWebhookWithManager(mgr ctrl.Manager) error {
 	for _, setup := range []func(ctrl.Manager) error{
-		resource.SetupWebhookWithManager,
+		rule.SetupWebhookWithManager,
+		connection.SetupWebhookWithManager,
 		providerconfig.SetupWebhookWithManager,
+		cluster.SetupWebhookWithManager,
+		stack.SetupWebhookWithManager,
+		clusterserverless.SetupWebhookWithManager,
+		peering.SetupWebhookWithManager,
 	} {
 		if err := setup(mgr); err != nil {
 			return err

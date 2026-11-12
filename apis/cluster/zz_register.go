@@ -10,9 +10,13 @@ package cluster
 import (
 	"k8s.io/apimachinery/pkg/runtime"
 
-	v1alpha1 "github.com/lansweeper-oss/provider-scylladbcloud/apis/cluster/null/v1alpha1"
-	v1alpha1cluster "github.com/lansweeper-oss/provider-scylladbcloud/apis/cluster/v1alpha1"
+	v1alpha1 "github.com/lansweeper-oss/provider-scylladbcloud/apis/cluster/allowlist/v1alpha1"
+	v1alpha1cluster "github.com/lansweeper-oss/provider-scylladbcloud/apis/cluster/cluster/v1alpha1"
+	v1alpha1scylladbcloud "github.com/lansweeper-oss/provider-scylladbcloud/apis/cluster/scylladbcloud/v1alpha1"
+	v1alpha1serverless "github.com/lansweeper-oss/provider-scylladbcloud/apis/cluster/serverless/v1alpha1"
+	v1alpha1clusterapis "github.com/lansweeper-oss/provider-scylladbcloud/apis/cluster/v1alpha1"
 	v1beta1 "github.com/lansweeper-oss/provider-scylladbcloud/apis/cluster/v1beta1"
+	v1alpha1vpc "github.com/lansweeper-oss/provider-scylladbcloud/apis/cluster/vpc/v1alpha1"
 )
 
 func init() {
@@ -20,7 +24,11 @@ func init() {
 	AddToSchemes = append(AddToSchemes,
 		v1alpha1.SchemeBuilder.AddToScheme,
 		v1alpha1cluster.SchemeBuilder.AddToScheme,
+		v1alpha1scylladbcloud.SchemeBuilder.AddToScheme,
+		v1alpha1serverless.SchemeBuilder.AddToScheme,
+		v1alpha1clusterapis.SchemeBuilder.AddToScheme,
 		v1beta1.SchemeBuilder.AddToScheme,
+		v1alpha1vpc.SchemeBuilder.AddToScheme,
 	)
 }
 

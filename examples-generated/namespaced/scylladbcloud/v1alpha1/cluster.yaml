@@ -1,0 +1,19 @@
+apiVersion: scylladbcloud.scylladbcloud.m.crossplane.io/v1alpha1
+kind: Cluster
+metadata:
+  annotations:
+    meta.upbound.io/example-id: scylladbcloud/v1alpha1/cluster
+  labels:
+    testing.upbound.io/example-name: example
+  name: example
+  namespace: crossplane-system
+spec:
+  forProvider:
+    cidrBlock: 172.31.0.0/16
+    cloud: AWS
+    enableDns: true
+    enableVpcPeering: true
+    minNodes: 3
+    name: My Cluster
+    nodeType: i3.xlarge
+    region: us-east-1
