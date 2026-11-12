@@ -3,9 +3,13 @@ package clients
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/crossplane/crossplane-runtime/v2/pkg/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+	tfsdk "github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 	"github.com/pkg/errors"
+	"github.com/scylladb/terraform-provider-scylladbcloud/pkg/provider"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -22,20 +26,22 @@ const (
 	errTrackUsage           = "cannot track ProviderConfig usage"
 	errExtractCredentials   = "cannot extract credentials"
 	errUnmarshalCredentials = "cannot unmarshal scylladbcloud credentials as JSON"
+	errNoToken              = "credentials must contain a non-empty \"token\""
+	errConfigureClient      = "cannot configure ScyllaDB Cloud client"
 )
 
-// TerraformSetupBuilder builds Terraform a terraform.SetupFn function which
-// returns Terraform provider setup configuration
-func TerraformSetupBuilder(version, providerSource, providerVersion string) terraform.SetupFn {
-	return func(ctx context.Context, client client.Client, mg resource.Managed) (terraform.Setup, error) {
-		ps := terraform.Setup{
-			Version: version,
-			Requirement: terraform.ProviderRequirement{
-				Source:  providerSource,
-				Version: providerVersion,
-			},
-		}
+// Keys of the JSON credentials secret, named after the Terraform provider
+// arguments they map to.
+const (
+	keyToken    = "token"
+	keyEndpoint = "endpoint"
+)
 
+// TerraformSetupBuilder returns a terraform.SetupFn that resolves the
+// ProviderConfig credentials and hands the in-process Terraform provider a
+// configured ScyllaDB Cloud client as its meta.
+func TerraformSetupBuilder(clientCache *ClientCache) terraform.SetupFn {
+	return func(ctx context.Context, client client.Client, mg resource.Managed) (terraform.Setup, error) {
 		pcSpec, err := resolveProviderConfig(ctx, client, mg)
 		if err != nil {
 			return terraform.Setup{}, errors.Wrap(err, "cannot resolve provider config")
@@ -43,20 +49,68 @@ func TerraformSetupBuilder(version, providerSource, providerVersion string) terr
 
 		data, err := resource.CommonCredentialExtractor(ctx, pcSpec.Credentials.Source, client, pcSpec.Credentials.CommonCredentialSelectors)
 		if err != nil {
-			return ps, errors.Wrap(err, errExtractCredentials)
+			return terraform.Setup{}, errors.Wrap(err, errExtractCredentials)
 		}
 		creds := map[string]string{}
 		if err := json.Unmarshal(data, &creds); err != nil {
-			return ps, errors.Wrap(err, errUnmarshalCredentials)
+			return terraform.Setup{}, errors.Wrap(err, errUnmarshalCredentials)
 		}
 
-		// Set credentials in Terraform provider configuration.
-		/*ps.Configuration = map[string]any{
-			"username": creds["username"],
-			"password": creds["password"],
-		}*/
-		return ps, nil
+		cfg, err := providerConfiguration(creds)
+		if err != nil {
+			return terraform.Setup{}, err
+		}
+
+		// Upjet passes Meta straight to the SDKv2 resource functions and never
+		// runs the provider's configure step itself, so the client is built here.
+		meta, err := clientCache.Get(ctx, cfg)
+		if err != nil {
+			return terraform.Setup{}, errors.Wrap(err, errConfigureClient)
+		}
+
+		return terraform.Setup{Configuration: cfg, Meta: meta}, nil
 	}
+}
+
+// providerConfiguration maps the credentials secret to the Terraform provider
+// configuration. The upstream provider does not validate its configuration when
+// configured in-process, so the required token is checked here.
+func providerConfiguration(creds map[string]string) (map[string]any, error) {
+	if creds[keyToken] == "" {
+		return nil, errors.New(errNoToken)
+	}
+	cfg := map[string]any{keyToken: creds[keyToken]}
+	if endpoint := creds[keyEndpoint]; endpoint != "" {
+		cfg[keyEndpoint] = endpoint
+	}
+	return cfg, nil
+}
+
+// configureScyllaClient runs the upstream provider's own configure logic, so
+// the client is built exactly as Terraform would build it. A fresh provider is
+// used every time because configuring stores the client on the instance.
+func configureScyllaClient(ctx context.Context, cfg map[string]any) (any, error) {
+	p := provider.New(ctx)
+	if diags := p.Configure(ctx, tfsdk.NewResourceConfigRaw(cfg)); diags.HasError() {
+		return nil, diagnosticsError(diags)
+	}
+	return p.Meta(), nil
+}
+
+// diagnosticsError joins the error diagnostics into a single error.
+func diagnosticsError(diags diag.Diagnostics) error {
+	msgs := make([]string, 0, len(diags))
+	for _, d := range diags {
+		if d.Severity != diag.Error {
+			continue
+		}
+		msg := d.Summary
+		if d.Detail != "" {
+			msg += ": " + d.Detail
+		}
+		msgs = append(msgs, msg)
+	}
+	return errors.New(strings.Join(msgs, "; "))
 }
 
 func toSharedPCSpec(pc *clusterv1beta1.ProviderConfig) (*namespacedv1beta1.ProviderConfigSpec, error) {
