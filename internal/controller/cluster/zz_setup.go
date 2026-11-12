@@ -9,26 +9,24 @@ import (
 
 	"github.com/crossplane/upjet/v2/pkg/controller"
 
-	rule "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/cluster/allowlist/rule"
-	connection "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/cluster/cluster/connection"
 	providerconfig "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/cluster/providerconfig"
+	allowlistrule "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/cluster/scylladbcloud/allowlistrule"
 	cluster "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/cluster/scylladbcloud/cluster"
-	stack "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/cluster/scylladbcloud/stack"
-	clusterserverless "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/cluster/serverless/cluster"
-	peering "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/cluster/vpc/peering"
+	clusterconnection "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/cluster/scylladbcloud/clusterconnection"
+	serverlesscluster "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/cluster/scylladbcloud/serverlesscluster"
+	vpcpeering "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/cluster/scylladbcloud/vpcpeering"
 )
 
 // Setup creates all controllers with the supplied logger and adds them to
 // the supplied manager.
 func Setup(mgr ctrl.Manager, o controller.Options) error {
 	for _, setup := range []func(ctrl.Manager, controller.Options) error{
-		rule.Setup,
-		connection.Setup,
 		providerconfig.Setup,
+		allowlistrule.Setup,
 		cluster.Setup,
-		stack.Setup,
-		clusterserverless.Setup,
-		peering.Setup,
+		clusterconnection.Setup,
+		serverlesscluster.Setup,
+		vpcpeering.Setup,
 	} {
 		if err := setup(mgr, o); err != nil {
 			return err
@@ -41,13 +39,12 @@ func Setup(mgr ctrl.Manager, o controller.Options) error {
 // the supplied manager gated.
 func SetupGated(mgr ctrl.Manager, o controller.Options) error {
 	for _, setup := range []func(ctrl.Manager, controller.Options) error{
-		rule.SetupGated,
-		connection.SetupGated,
 		providerconfig.SetupGated,
+		allowlistrule.SetupGated,
 		cluster.SetupGated,
-		stack.SetupGated,
-		clusterserverless.SetupGated,
-		peering.SetupGated,
+		clusterconnection.SetupGated,
+		serverlesscluster.SetupGated,
+		vpcpeering.SetupGated,
 	} {
 		if err := setup(mgr, o); err != nil {
 			return err
@@ -59,13 +56,12 @@ func SetupGated(mgr ctrl.Manager, o controller.Options) error {
 // SetupWebhookWithManager registers conversion webhooks for all resource kinds in the group.
 func SetupWebhookWithManager(mgr ctrl.Manager) error {
 	for _, setup := range []func(ctrl.Manager) error{
-		rule.SetupWebhookWithManager,
-		connection.SetupWebhookWithManager,
 		providerconfig.SetupWebhookWithManager,
+		allowlistrule.SetupWebhookWithManager,
 		cluster.SetupWebhookWithManager,
-		stack.SetupWebhookWithManager,
-		clusterserverless.SetupWebhookWithManager,
-		peering.SetupWebhookWithManager,
+		clusterconnection.SetupWebhookWithManager,
+		serverlesscluster.SetupWebhookWithManager,
+		vpcpeering.SetupWebhookWithManager,
 	} {
 		if err := setup(mgr); err != nil {
 			return err

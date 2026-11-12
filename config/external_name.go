@@ -19,8 +19,6 @@ var ExternalNameConfigs = map[string]config.ExternalName{
 	"scylladbcloud_allowlist_rule": config.IdentifierFromProvider,
 	// Numeric serverless cluster ID
 	"scylladbcloud_serverless_cluster": config.IdentifierFromProvider,
-	// Key ID part of the API token ("<id>:<secret>"); read is a no-op upstream
-	"scylladbcloud_stack": config.IdentifierFromProvider,
 	// Cloud-side peering ID ("externalId" in the API); read searches all
 	// clusters for it
 	"scylladbcloud_vpc_peering": config.IdentifierFromProvider,

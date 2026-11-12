@@ -7,7 +7,16 @@
 package v1alpha1
 
 // Hub marks this type as a conversion hub.
+func (tr *AllowListRule) Hub() {}
+
+// Hub marks this type as a conversion hub.
 func (tr *Cluster) Hub() {}
 
 // Hub marks this type as a conversion hub.
-func (tr *Stack) Hub() {}
+func (tr *ClusterConnection) Hub() {}
+
+// Hub marks this type as a conversion hub.
+func (tr *ServerlessCluster) Hub() {}
+
+// Hub marks this type as a conversion hub.
+func (tr *VpcPeering) Hub() {}

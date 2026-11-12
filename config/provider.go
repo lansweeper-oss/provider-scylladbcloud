@@ -33,11 +33,7 @@ func GetProvider() *ujconfig.Provider {
 			ExternalNameConfigurations(),
 		))
 
-	for _, configure := range []func(provider *ujconfig.Provider){
-		// add custom config functions
-	} {
-		configure(pc)
-	}
+	Configure(pc)
 
 	pc.ConfigureResources()
 	return pc
@@ -58,11 +54,7 @@ func GetProviderNamespaced() *ujconfig.Provider {
 			ManagedResourceNamespace: "crossplane-system",
 		}))
 
-	for _, configure := range []func(provider *ujconfig.Provider){
-		// add custom config functions
-	} {
-		configure(pc)
-	}
+	Configure(pc)
 
 	pc.ConfigureResources()
 	return pc

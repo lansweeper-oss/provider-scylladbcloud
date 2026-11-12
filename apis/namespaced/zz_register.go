@@ -10,25 +10,17 @@ package namespaced
 import (
 	"k8s.io/apimachinery/pkg/runtime"
 
-	v1alpha1 "github.com/lansweeper-oss/provider-scylladbcloud/apis/namespaced/allowlist/v1alpha1"
-	v1alpha1cluster "github.com/lansweeper-oss/provider-scylladbcloud/apis/namespaced/cluster/v1alpha1"
-	v1alpha1scylladbcloud "github.com/lansweeper-oss/provider-scylladbcloud/apis/namespaced/scylladbcloud/v1alpha1"
-	v1alpha1serverless "github.com/lansweeper-oss/provider-scylladbcloud/apis/namespaced/serverless/v1alpha1"
+	v1alpha1 "github.com/lansweeper-oss/provider-scylladbcloud/apis/namespaced/scylladbcloud/v1alpha1"
 	v1alpha1namespaced "github.com/lansweeper-oss/provider-scylladbcloud/apis/namespaced/v1alpha1"
 	v1beta1 "github.com/lansweeper-oss/provider-scylladbcloud/apis/namespaced/v1beta1"
-	v1alpha1vpc "github.com/lansweeper-oss/provider-scylladbcloud/apis/namespaced/vpc/v1alpha1"
 )
 
 func init() {
 	// Register the types with the Scheme so the components can map objects to GroupVersionKinds and back
 	AddToSchemes = append(AddToSchemes,
 		v1alpha1.SchemeBuilder.AddToScheme,
-		v1alpha1cluster.SchemeBuilder.AddToScheme,
-		v1alpha1scylladbcloud.SchemeBuilder.AddToScheme,
-		v1alpha1serverless.SchemeBuilder.AddToScheme,
 		v1alpha1namespaced.SchemeBuilder.AddToScheme,
 		v1beta1.SchemeBuilder.AddToScheme,
-		v1alpha1vpc.SchemeBuilder.AddToScheme,
 	)
 }
 

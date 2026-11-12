@@ -8,6 +8,24 @@ package v1alpha1
 
 import resource "github.com/crossplane/crossplane-runtime/v2/pkg/resource"
 
+// GetItems of this AllowListRuleList.
+func (l *AllowListRuleList) GetItems() []resource.Managed {
+	items := make([]resource.Managed, len(l.Items))
+	for i := range l.Items {
+		items[i] = &l.Items[i]
+	}
+	return items
+}
+
+// GetItems of this ClusterConnectionList.
+func (l *ClusterConnectionList) GetItems() []resource.Managed {
+	items := make([]resource.Managed, len(l.Items))
+	for i := range l.Items {
+		items[i] = &l.Items[i]
+	}
+	return items
+}
+
 // GetItems of this ClusterList.
 func (l *ClusterList) GetItems() []resource.Managed {
 	items := make([]resource.Managed, len(l.Items))
@@ -17,8 +35,17 @@ func (l *ClusterList) GetItems() []resource.Managed {
 	return items
 }
 
-// GetItems of this StackList.
-func (l *StackList) GetItems() []resource.Managed {
+// GetItems of this ServerlessClusterList.
+func (l *ServerlessClusterList) GetItems() []resource.Managed {
+	items := make([]resource.Managed, len(l.Items))
+	for i := range l.Items {
+		items[i] = &l.Items[i]
+	}
+	return items
+}
+
+// GetItems of this VpcPeeringList.
+func (l *VpcPeeringList) GetItems() []resource.Managed {
 	items := make([]resource.Managed, len(l.Items))
 	for i := range l.Items {
 		items[i] = &l.Items[i]
