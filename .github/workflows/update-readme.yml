@@ -5,6 +5,10 @@ on:
     branches:
       - main
 
+# The README commit is made with the GitHub App token, not GITHUB_TOKEN.
+permissions:
+  contents: read
+
 jobs:
   update-readme:
     runs-on: ubuntu-latest

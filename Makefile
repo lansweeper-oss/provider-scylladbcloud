@@ -172,20 +172,26 @@ $(TERRAFORM_PROVIDER_SCHEMA:.json=.generated.lst): $(TERRAFORM_PROVIDER_SCHEMA)
 # Provider source extraction for the no-fork (in-process) runtime.
 #
 # The upstream provider constructor lives in internal/provider, which Go forbids
-# importing from another module. We clone the provider at the pinned version into
-# third_party/ and add a public pkg/provider shim inside that module tree, which is
-# allowed to import internal/. The go.mod has a replace directive pointing at this
+# importing from another module. We copy the provider module at the pinned version
+# into third_party/ and add a public pkg/provider shim inside that module tree, which
+# is allowed to import internal/. The go.mod has a replace directive pointing at this
 # directory so config/ and internal/clients can import pkg/provider directly.
 # third_party/ is gitignored; fresh checkouts get it through build.init,
 # generate.init and go.modules.download.
+#
+# The source is fetched through the Go module proxy, so `go` verifies it against
+# the checksum database (sum.golang.org): a moved tag or tampered source fails the
+# download. It runs outside this module because our go.mod replaces that module.
 PROVIDER_SOURCE_DIR := third_party/$(TERRAFORM_PROVIDER_DOWNLOAD_NAME)
+TERRAFORM_PROVIDER_GO_MODULE := github.com/$(TERRAFORM_PROVIDER_ORG)/$(TERRAFORM_PROVIDER_DOWNLOAD_NAME)
 
 provider-source: $(PROVIDER_VERSION_STAMP)
-	@if [ ! -d "$(PROVIDER_SOURCE_DIR)/pkg/provider" ]; then \
-		$(INFO) extracting $(TERRAFORM_PROVIDER_SOURCE) provider source v$(TERRAFORM_PROVIDER_VERSION); \
+	@set -e; if [ ! -d "$(PROVIDER_SOURCE_DIR)/pkg/provider" ]; then \
+		$(INFO) extracting $(TERRAFORM_PROVIDER_GO_MODULE)@v$(TERRAFORM_PROVIDER_VERSION); \
 		rm -rf "$(PROVIDER_SOURCE_DIR)"; \
-		git clone -c advice.detachedHead=false --depth 1 --branch "v$(TERRAFORM_PROVIDER_VERSION)" "$(TERRAFORM_PROVIDER_REPO)" "$(PROVIDER_SOURCE_DIR)" || $(FAIL); \
-		rm -rf "$(PROVIDER_SOURCE_DIR)/.git"; \
+		src=$$(cd / && GOFLAGS=-mod=mod go mod download -json "$(TERRAFORM_PROVIDER_GO_MODULE)@v$(TERRAFORM_PROVIDER_VERSION)" | sed -n 's/^[[:space:]]*"Dir": "\(.*\)",$$/\1/p'); \
+		[ -n "$$src" ] && [ -d "$$src" ] || { echo "cannot download $(TERRAFORM_PROVIDER_GO_MODULE)@v$(TERRAFORM_PROVIDER_VERSION)" >&2; $(FAIL); }; \
+		mkdir -p "$$(dirname "$(PROVIDER_SOURCE_DIR)")" && cp -R "$$src" "$(PROVIDER_SOURCE_DIR)" && chmod -R u+w "$(PROVIDER_SOURCE_DIR)" || $(FAIL); \
 		$(INFO) creating pkg/provider shim for internal/provider; \
 		mkdir -p "$(PROVIDER_SOURCE_DIR)/pkg/provider"; \
 		printf 'package provider\n\nimport (\n\t"context"\n\n\t"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"\n\n\tinternalprovider "github.com/scylladb/terraform-provider-scylladbcloud/internal/provider"\n)\n\n// New exposes the upstream internal SDKv2 provider constructor to other modules.\nfunc New(ctx context.Context) *schema.Provider {\n\treturn internalprovider.New(ctx)\n}\n' > "$(PROVIDER_SOURCE_DIR)/pkg/provider/provider.go"; \
@@ -374,7 +380,11 @@ UP := $(TOOLS_HOST_DIR)/up-$(UP_VERSION)
 $(SYFT):
 	@$(INFO) installing syft $(SYFT_VERSION)
 	@mkdir -p $(TOOLS_HOST_DIR)
-	@curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b $(TOOLS_HOST_DIR) v$(SYFT_VERSION) || $(FAIL)
+	@# Installer pinned to the release tag (not main) and downloaded to a file first,
+	@# so a failed download fails here instead of piping nothing into sh.
+	@curl -sSfL -o $(TOOLS_HOST_DIR)/syft-install-$(SYFT_VERSION).sh https://raw.githubusercontent.com/anchore/syft/v$(SYFT_VERSION)/install.sh || $(FAIL)
+	@sh $(TOOLS_HOST_DIR)/syft-install-$(SYFT_VERSION).sh -b $(TOOLS_HOST_DIR) v$(SYFT_VERSION) || $(FAIL)
+	@rm -f $(TOOLS_HOST_DIR)/syft-install-$(SYFT_VERSION).sh
 	@mv $(TOOLS_HOST_DIR)/syft $(SYFT)
 	@$(OK) installing syft $(SYFT_VERSION)
 

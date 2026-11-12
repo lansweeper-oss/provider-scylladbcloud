@@ -12,9 +12,12 @@ fi
 SCYLLADB_CLOUD_ENDPOINT="${SCYLLADB_CLOUD_ENDPOINT:-https://api.cloud.scylladb.com}"
 
 echo "Creating provider credentials secret..."
-${KUBECTL} -n crossplane-system create secret generic provider-secret \
-  --from-literal=credentials="{\"token\":\"${SCYLLADB_CLOUD_TOKEN}\",\"endpoint\":\"${SCYLLADB_CLOUD_ENDPOINT}\"}" \
-  --dry-run=client -o yaml | ${KUBECTL} apply -f -
+# The token goes through stdin (printf is a shell builtin), not kubectl's
+# arguments, so it doesn't show up in the process list.
+printf '{"token":"%s","endpoint":"%s"}' "${SCYLLADB_CLOUD_TOKEN}" "${SCYLLADB_CLOUD_ENDPOINT}" \
+  | ${KUBECTL} -n crossplane-system create secret generic provider-secret \
+      --from-file=credentials=/dev/stdin --dry-run=client -o yaml \
+  | ${KUBECTL} apply -f -
 
 echo "Waiting until provider is healthy..."
 ${KUBECTL} wait provider.pkg --all --for condition=Healthy --timeout 5m

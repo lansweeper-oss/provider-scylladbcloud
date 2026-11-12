@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -42,6 +43,17 @@ func TestProviderGroupsCoversAllProviderTypes(t *testing.T) {
 	for _, g := range got {
 		if !want[g] {
 			t.Errorf("unexpected group %q", g)
+		}
+	}
+}
+
+// A zero or negative TTL would silently disable the client cache and rebuild
+// the client (several API calls) on every reconcile.
+func TestValidateClientCacheTTL(t *testing.T) {
+	for ttl, wantErr := range map[time.Duration]bool{0: true, -time.Second: true, time.Nanosecond: false, 30 * time.Minute: false} {
+		err := validateClientCacheTTL(ttl)
+		if (err != nil) != wantErr {
+			t.Errorf("validateClientCacheTTL(%v): want error %v, got %v", ttl, wantErr, err)
 		}
 	}
 }

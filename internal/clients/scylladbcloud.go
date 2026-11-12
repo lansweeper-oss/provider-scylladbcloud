@@ -77,11 +77,14 @@ func TerraformSetupBuilder(clientCache *ClientCache) terraform.SetupFn {
 // configuration. The upstream provider does not validate its configuration when
 // configured in-process, so the required token is checked here.
 func providerConfiguration(creds map[string]string) (map[string]any, error) {
-	if creds[keyToken] == "" {
+	// Secrets created with `echo` carry a trailing newline, which would end
+	// up in the Authorization header.
+	token := strings.TrimSpace(creds[keyToken])
+	if token == "" {
 		return nil, errors.New(errNoToken)
 	}
-	cfg := map[string]any{keyToken: creds[keyToken]}
-	if endpoint := creds[keyEndpoint]; endpoint != "" {
+	cfg := map[string]any{keyToken: token}
+	if endpoint := strings.TrimSpace(creds[keyEndpoint]); endpoint != "" {
 		cfg[keyEndpoint] = endpoint
 	}
 	return cfg, nil

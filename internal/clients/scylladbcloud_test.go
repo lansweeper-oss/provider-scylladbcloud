@@ -15,6 +15,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	apisCluster "github.com/lansweeper-oss/provider-scylladbcloud/apis/cluster"
+	clusterscyllav1alpha1 "github.com/lansweeper-oss/provider-scylladbcloud/apis/cluster/scylladbcloud/v1alpha1"
+	clusterv1beta1 "github.com/lansweeper-oss/provider-scylladbcloud/apis/cluster/v1beta1"
 	apisNamespaced "github.com/lansweeper-oss/provider-scylladbcloud/apis/namespaced"
 	scyllav1alpha1 "github.com/lansweeper-oss/provider-scylladbcloud/apis/namespaced/scylladbcloud/v1alpha1"
 	namespacedv1beta1 "github.com/lansweeper-oss/provider-scylladbcloud/apis/namespaced/v1beta1"
@@ -45,6 +48,16 @@ func TestProviderConfiguration(t *testing.T) {
 		"EmptyToken": {
 			creds:   map[string]string{"token": ""},
 			wantErr: true,
+		},
+		"WhitespaceOnlyToken": {
+			creds:   map[string]string{"token": " \n"},
+			wantErr: true,
+		},
+		// Secrets created with `echo ... | kubectl create secret` carry a
+		// trailing newline, which would end up in the Authorization header.
+		"TrimsSurroundingWhitespace": {
+			creds: map[string]string{"token": "tok\n", "endpoint": " https://example.test\n"},
+			want:  map[string]any{"token": "tok", "endpoint": "https://example.test"},
 		},
 	}
 	for name, tc := range cases {
@@ -229,4 +242,58 @@ func TestTerraformSetupBuilder(t *testing.T) {
 			t.Errorf("want no client build, got %d", rc.calls)
 		}
 	})
+}
+
+// Cluster-scoped managed resources resolve a cluster-scoped ProviderConfig
+// (scylladbcloud.crossplane.io) and track its usage.
+func TestTerraformSetupBuilderClusterScoped(t *testing.T) {
+	scheme := runtime.NewScheme()
+	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, apisCluster.AddToScheme} {
+		if err := add(scheme); err != nil {
+			t.Fatal(err)
+		}
+	}
+	kube := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "scylla-creds", Namespace: "crossplane-system"},
+			Data:       map[string][]byte{"credentials": []byte(`{"token":"tok"}`)},
+		},
+		&clusterv1beta1.ProviderConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "default"},
+			Spec: clusterv1beta1.ProviderConfigSpec{
+				Credentials: clusterv1beta1.ProviderCredentials{
+					Source: xpv2.CredentialsSourceSecret,
+					CommonCredentialSelectors: xpv2.CommonCredentialSelectors{
+						SecretRef: &xpv2.SecretKeySelector{
+							SecretReference: xpv2.SecretReference{Name: "scylla-creds", Namespace: "crossplane-system"},
+							Key:             "credentials",
+						},
+					},
+				},
+			},
+		},
+	).Build()
+
+	mg := &clusterscyllav1alpha1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "my-cluster", UID: "4c1f8d2e-7a3b-4e5f-9c0d-1b2a3c4d5e6f"}}
+	mg.Spec.ProviderConfigReference = &xpv2.Reference{Name: "default"}
+
+	rc := &recordingConfigure{}
+	ps, err := TerraformSetupBuilder(newClientCache(time.Minute, rc.configure, time.Now))(context.Background(), kube, mg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := map[string]any{"token": "tok"}; !reflect.DeepEqual(map[string]any(ps.Configuration), want) {
+		t.Errorf("Configuration: want %v, got %v", want, ps.Configuration)
+	}
+	if ps.Meta != "client" {
+		t.Errorf("Meta: want the configured client, got %v", ps.Meta)
+	}
+
+	usages := &clusterv1beta1.ProviderConfigUsageList{}
+	if err := kube.List(context.Background(), usages); err != nil {
+		t.Fatal(err)
+	}
+	if len(usages.Items) != 1 {
+		t.Errorf("want 1 ProviderConfigUsage tracking the managed resource, got %d", len(usages.Items))
+	}
 }

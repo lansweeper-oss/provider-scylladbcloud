@@ -26,4 +26,28 @@ func Configure(p *config.Provider) {
 			r.Kind = kind
 		})
 	}
+	p.AddResourceConfigurator("scylladbcloud_vpc_peering", migrateExamplePeerCIDRBlock)
+}
+
+// migrateExamplePeerCIDRBlock rewrites the scraped examples, which come from
+// upstream docs that still use the removed peer_cidr_block string, to the
+// current peer_cidr_blocks list. Otherwise the generated examples fail schema
+// validation.
+func migrateExamplePeerCIDRBlock(r *config.Resource) {
+	if r.MetaResource == nil {
+		return
+	}
+	for i := range r.MetaResource.Examples {
+		e := &r.MetaResource.Examples[i]
+		cidr, err := e.Paved.GetValue("peer_cidr_block")
+		if err != nil {
+			continue // field not present in this example
+		}
+		if err := e.Paved.DeleteField("peer_cidr_block"); err != nil {
+			panic(err)
+		}
+		if err := e.SetPathValue("peer_cidr_blocks", []any{cidr}); err != nil {
+			panic(err)
+		}
+	}
 }

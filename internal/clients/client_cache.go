@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // configureFn builds the Terraform provider meta (the ScyllaDB Cloud client)
@@ -26,6 +28,7 @@ type ClientCache struct {
 
 	mu      sync.Mutex
 	entries map[string]cachedClient
+	builds  singleflight.Group
 }
 
 type cachedClient struct {
@@ -49,7 +52,8 @@ func newClientCache(ttl time.Duration, configure configureFn, now func() time.Ti
 }
 
 // Get returns the cached client for cfg, building a new one if there is none
-// or it has expired. Failed builds are not cached.
+// or it has expired. Concurrent callers for the same configuration share one
+// build. Failed builds are not cached.
 func (c *ClientCache) Get(ctx context.Context, cfg map[string]any) (any, error) {
 	key, err := cacheKey(cfg)
 	if err != nil {
@@ -63,8 +67,23 @@ func (c *ClientCache) Get(ctx context.Context, cfg map[string]any) (any, error) 
 		return entry.meta, nil
 	}
 
-	// Build outside the lock: it calls the API, and must not block reconciles
-	// that use other, already cached, configurations.
+	// The build calls the API with retries and can take minutes, so it runs
+	// detached from the caller's cancellation: a cancelled reconcile returns
+	// right away while the build completes for the other callers waiting on it.
+	buildCtx := context.WithoutCancel(ctx)
+	res := c.builds.DoChan(key, func() (any, error) {
+		return c.build(buildCtx, key, cfg)
+	})
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case r := <-res:
+		return r.Val, r.Err
+	}
+}
+
+// build configures a client and caches it, evicting expired entries.
+func (c *ClientCache) build(ctx context.Context, key string, cfg map[string]any) (any, error) {
 	meta, err := c.configure(ctx, cfg)
 	if err != nil {
 		return nil, err

@@ -97,6 +97,8 @@ func main() {
 		},
 	)
 
+	ctx.FatalIfErrorf(validateClientCacheTTL(cli.ClientCacheTTL), "Invalid --client-cache-ttl")
+
 	zl := zap.New(zap.UseDevMode(cli.Debug))
 	log := logging.NewLogrLogger(zl.WithName("provider-scylladbcloud"))
 	if cli.Debug {
@@ -277,6 +279,15 @@ func main() {
 	}
 
 	ctx.FatalIfErrorf(mgr.Start(ctrl.SetupSignalHandler()), "Cannot start controller manager")
+}
+
+// validateClientCacheTTL rejects TTLs that would disable the client cache:
+// every reconcile would then rebuild the client, which takes several API calls.
+func validateClientCacheTTL(ttl time.Duration) error {
+	if ttl <= 0 {
+		return fmt.Errorf("client cache TTL must be positive, got %s", ttl)
+	}
+	return nil
 }
 
 // providerGroups returns every API group in the scheme that is one of the given

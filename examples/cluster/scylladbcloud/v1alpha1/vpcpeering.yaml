@@ -11,7 +11,8 @@ spec:
     allowCql: true
     clusterId: 1337
     datacenter: AWS_US_EAST_1
-    peer_cidr_block: 192.168.0.0/16
     peerAccountId: "123"
+    peerCidrBlocks:
+    - 192.168.0.0/16
     peerRegion: us-east-1
     peerVpcId: vpc-1234
