@@ -1,4 +1,4 @@
-module github.com/crossplane/upjet-provider-template
+module github.com/lansweeper-oss/provider-scylladbcloud
 
 go 1.27.4
 

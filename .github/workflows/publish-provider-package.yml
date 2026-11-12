@@ -16,7 +16,7 @@ jobs:
   publish-provider-package:
     uses: crossplane-contrib/provider-workflows/.github/workflows/publish-provider.yml@d8bb2978c8987635b2fddb5bd9c2868bd14117b0 # main
     with:
-      repository: provider-template
+      repository: provider-scylladbcloud
       version: ${{ github.event.inputs.version }}
       go-version: ${{ github.event.inputs.go-version }}
       cleanup-disk: true
