@@ -315,7 +315,10 @@ e2e-cleanup: e2e-check-context $(KUBECTL)
 	@$(KUBECTL) delete managed --all-namespaces -l e2e-test=true 2>/dev/null || true
 	@$(OK) e2e cleanup complete
 
-local-deploy: build.all controlplane.up local.xpkg.deploy.provider.$(PROJECT_NAME)
+# `build` (not build.all) builds only the host's Linux platform, which is the image
+# local.xpkg.deploy loads into Kind. build.all would also build the other
+# architectures, which needs QEMU emulation (exec format error on CI runners).
+local-deploy: build controlplane.up local.xpkg.deploy.provider.$(PROJECT_NAME)
 	@$(INFO) running locally built provider
 	@$(KUBECTL) wait provider.pkg $(PROJECT_NAME) --for condition=Healthy --timeout 5m
 	@$(KUBECTL) -n crossplane-system wait --for=condition=Available deployment --all --timeout=5m
