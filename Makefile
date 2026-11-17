@@ -186,17 +186,18 @@ PROVIDER_SOURCE_DIR := third_party/$(TERRAFORM_PROVIDER_DOWNLOAD_NAME)
 TERRAFORM_PROVIDER_GO_MODULE := github.com/$(TERRAFORM_PROVIDER_ORG)/$(TERRAFORM_PROVIDER_DOWNLOAD_NAME)
 
 provider-source: $(PROVIDER_VERSION_STAMP)
-	@set -e; if [ ! -d "$(PROVIDER_SOURCE_DIR)/pkg/provider" ]; then \
+	@set -e; if [ ! -f "$(PROVIDER_SOURCE_DIR)/go.mod" ]; then \
 		$(INFO) extracting $(TERRAFORM_PROVIDER_GO_MODULE)@v$(TERRAFORM_PROVIDER_VERSION); \
 		rm -rf "$(PROVIDER_SOURCE_DIR)"; \
 		src=$$(cd / && GOFLAGS=-mod=mod go mod download -json "$(TERRAFORM_PROVIDER_GO_MODULE)@v$(TERRAFORM_PROVIDER_VERSION)" | sed -n 's/^[[:space:]]*"Dir": "\(.*\)",$$/\1/p'); \
 		[ -n "$$src" ] && [ -d "$$src" ] || { echo "cannot download $(TERRAFORM_PROVIDER_GO_MODULE)@v$(TERRAFORM_PROVIDER_VERSION)" >&2; $(FAIL); }; \
 		mkdir -p "$$(dirname "$(PROVIDER_SOURCE_DIR)")" && cp -R "$$src" "$(PROVIDER_SOURCE_DIR)" && chmod -R u+w "$(PROVIDER_SOURCE_DIR)" || $(FAIL); \
-		$(INFO) creating pkg/provider shim for internal/provider; \
-		mkdir -p "$(PROVIDER_SOURCE_DIR)/pkg/provider"; \
-		printf 'package provider\n\nimport (\n\t"context"\n\n\t"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"\n\n\tinternalprovider "github.com/scylladb/terraform-provider-scylladbcloud/internal/provider"\n)\n\n// New exposes the upstream internal SDKv2 provider constructor to other modules.\nfunc New(ctx context.Context) *schema.Provider {\n\treturn internalprovider.New(ctx)\n}\n' > "$(PROVIDER_SOURCE_DIR)/pkg/provider/provider.go"; \
 		$(OK) extracting $(TERRAFORM_PROVIDER_SOURCE) provider source v$(TERRAFORM_PROVIDER_VERSION); \
 	fi
+	@# The shim is copied on every run so that an edited template reaches existing
+	@# checkouts (Go's build cache keys on content, so an unchanged copy is free).
+	@mkdir -p "$(PROVIDER_SOURCE_DIR)/pkg/provider"
+	@cp hack/provider-shim.go.tmpl "$(PROVIDER_SOURCE_DIR)/pkg/provider/provider.go"
 
 generate.init: $(TERRAFORM_PROVIDER_SCHEMA) pull-docs provider-source
 generate.done: copy-examples clean-descriptions

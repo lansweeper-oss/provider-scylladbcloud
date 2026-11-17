@@ -21,6 +21,7 @@ import (
 	"github.com/crossplane/crossplane-runtime/v2/pkg/reconciler/managed"
 	"github.com/crossplane/crossplane-runtime/v2/pkg/statemetrics"
 	tjcontroller "github.com/crossplane/upjet/v2/pkg/controller"
+	"github.com/crossplane/upjet/v2/pkg/diffserver"
 	"github.com/go-logr/logr"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -48,6 +49,8 @@ import (
 	controllerNamespaced "github.com/lansweeper-oss/provider-scylladbcloud/internal/controller/namespaced"
 	"github.com/lansweeper-oss/provider-scylladbcloud/internal/features"
 	"github.com/lansweeper-oss/provider-scylladbcloud/internal/version"
+
+	scyllaprovider "github.com/scylladb/terraform-provider-scylladbcloud/pkg/provider"
 )
 
 const (
@@ -55,6 +58,9 @@ const (
 	tlsServerCertDirEnvVar  = "TLS_SERVER_CERTS_DIR"
 	certsDirEnvVar          = "CERTS_DIR"
 	tlsServerCertDir        = "/tls/server"
+
+	// The diff-server command, as kong.Context.Command reports it.
+	cmdDiffServer = "internal diff-server"
 )
 
 type certsDir string
@@ -65,8 +71,9 @@ func (d certsDir) BeforeApply(certsDirSet *bool) error {
 	return nil
 }
 
-var cli struct {
-	Debug          bool `help:"Run with debug logging" short:"d"`
+// startCmd runs the provider's controllers. It is the default command, so the
+// provider keeps behaving as before when it is invoked with flags alone.
+type startCmd struct {
 	LeaderElection bool `help:"Use leader election for the controller manager" short:"l" default:"false" env:"LEADER_ELECTION"`
 
 	SyncPeriod              time.Duration `name:"sync" help:"Controller manager sync period such as 300ms, 1.5h, or 2h45m" short:"s" default:"1h"`
@@ -86,6 +93,23 @@ var cli struct {
 	CertsDir           certsDir `help:"The directory that contains the server key and certificate" default:"${defaultCertsDir}" env:"${defaultCertsDirEnvVar}"`
 }
 
+// diffServerCmd serves upjet's diff gRPC service, which the Crossplane CLI
+// drives to simulate changes. It never contacts the ScyllaDB Cloud API or a
+// cluster: plans are computed offline from the resources in each request.
+type diffServerCmd struct {
+	Network string `help:"The network the diff gRPC server listens on." default:"tcp" enum:"tcp,unix" env:"DIFF_SERVER_NETWORK"`
+	Address string `help:"The address the diff gRPC server listens on. A file path when the network is unix." default:":9099" env:"DIFF_SERVER_ADDRESS"`
+}
+
+var cli struct {
+	Debug bool `help:"Run with debug logging" short:"d"`
+
+	Start    startCmd `cmd:"" default:"withargs" help:"Start the provider's controllers."`
+	Internal struct {
+		DiffServer diffServerCmd `cmd:"" name:"diff-server" help:"Start a gRPC server serving the provider's diff services. It never contacts the ScyllaDB Cloud API or a cluster: plans are computed offline from the resources in each request."`
+	} `cmd:"" help:"Commands used internally by the Crossplane ecosystem. No compatibility guarantees are made for them."`
+}
+
 func main() {
 	certsDirSet := false
 	ctx := kong.Parse(&cli,
@@ -97,25 +121,24 @@ func main() {
 		},
 	)
 
-	ctx.FatalIfErrorf(validateClientCacheTTL(cli.ClientCacheTTL), "Invalid --client-cache-ttl")
+	log := newLogger(cli.Debug)
 
-	zl := zap.New(zap.UseDevMode(cli.Debug))
-	log := logging.NewLogrLogger(zl.WithName("provider-scylladbcloud"))
-	if cli.Debug {
-		// The controller-runtime runs with a no-op logger by default. It is
-		// *very* verbose even at info level, so we only provide it a real
-		// logger when we're running in debug mode.
-		ctrl.SetLogger(zl)
-	} else {
-		// controller-runtime v0.23+ requires SetLogger to be called, otherwise
-		// background goroutines (e.g. priority queue) will warn about missing logger.
-		ctrl.SetLogger(logr.Discard())
+	// kong only accepts the commands declared on cli, so anything other than the
+	// diff server is the default start command.
+	if ctx.Command() == cmdDiffServer {
+		// Dispatched before a cluster connection (ctrl.GetConfig and the manager
+		// below) is required: the diff server plans from the resources in each
+		// request and never talks to a cluster or to the ScyllaDB Cloud API.
+		runDiffServer(ctx, log)
+		return
 	}
 
-	// currently, we configure the jitter to be the 5% of the poll interval
-	pollJitter := time.Duration(float64(cli.PollInterval) * 0.05)
+	ctx.FatalIfErrorf(validateClientCacheTTL(cli.Start.ClientCacheTTL), "Invalid --client-cache-ttl")
 
-	log.Debug("Starting", "sync-period", cli.SyncPeriod.String(), "poll-interval", cli.PollInterval.String(), "max-reconcile-rate", cli.MaxReconcileRate)
+	// currently, we configure the jitter to be the 5% of the poll interval
+	pollJitter := time.Duration(float64(cli.Start.PollInterval) * 0.05)
+
+	log.Debug("Starting", "sync-period", cli.Start.SyncPeriod.String(), "poll-interval", cli.Start.PollInterval.String(), "max-reconcile-rate", cli.Start.MaxReconcileRate)
 
 	cfg, err := ctrl.GetConfig()
 	ctx.FatalIfErrorf(err, "Cannot get API server rest config")
@@ -138,7 +161,7 @@ func main() {
 		// we probably don't need this condition but just to be on the
 		// safe side, if we are missing any kong machinery details...
 		if xpCertsDir != "" {
-			cli.CertsDir = certsDir(xpCertsDir)
+			cli.Start.CertsDir = certsDir(xpCertsDir)
 		}
 	}
 
@@ -149,17 +172,17 @@ func main() {
 	ctx.FatalIfErrorf(apiextensionsv1.AddToScheme(scheme), "Cannot add api-extensions APIs to scheme")
 
 	var clientOpts client.Options
-	if !cli.EnableSecretCache {
+	if !cli.Start.EnableSecretCache {
 		clientOpts.Cache = &client.CacheOptions{DisableFor: []client.Object{&corev1.Secret{}}}
 	}
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:           scheme,
 		Client:           clientOpts,
-		LeaderElection:   cli.LeaderElection,
+		LeaderElection:   cli.Start.LeaderElection,
 		LeaderElectionID: "crossplane-leader-election-provider-scylladbcloud",
 		Cache: cache.Options{
-			SyncPeriod:       &cli.SyncPeriod,
+			SyncPeriod:       &cli.Start.SyncPeriod,
 			DefaultTransform: cache.TransformStripManagedFields(),
 			// A ByObject transform replaces DefaultTransform for that type;
 			// TransformStripCRDSchema strips managed fields as well.
@@ -170,12 +193,12 @@ func main() {
 			},
 		},
 		Metrics: metricsserver.Options{
-			BindAddress: cli.MetricsBindAddress,
+			BindAddress: cli.Start.MetricsBindAddress,
 		},
 		WebhookServer: webhook.NewServer(
 			webhook.Options{
-				CertDir: string(cli.CertsDir),
-				Port:    cli.WebhookPort,
+				CertDir: string(cli.Start.CertsDir),
+				Port:    cli.Start.WebhookPort,
 			}),
 		LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
 		LeaseDuration:              func() *time.Duration { d := 60 * time.Second; return &d }(),
@@ -194,17 +217,17 @@ func main() {
 	// Both scopes share the client cache, so a credential set is only
 	// configured once, and the operation store tracking in-flight async
 	// Terraform operations.
-	setupFn := clients.TerraformSetupBuilder(clients.NewClientCache(cli.ClientCacheTTL))
+	setupFn := clients.TerraformSetupBuilder(clients.NewClientCache(cli.Start.ClientCacheTTL))
 	o := tjcontroller.NewOperationStore(log)
 
 	clusterOpts := tjcontroller.Options{
 		Logger:                  log,
-		GlobalRateLimiter:       ratelimiter.NewGlobal(cli.MaxReconcileRate),
-		PollInterval:            cli.PollInterval,
-		MaxConcurrentReconciles: cli.MaxReconcileRate,
+		GlobalRateLimiter:       ratelimiter.NewGlobal(cli.Start.MaxReconcileRate),
+		PollInterval:            cli.Start.PollInterval,
+		MaxConcurrentReconciles: cli.Start.MaxReconcileRate,
 		Features:                &feature.Flags{},
 		MetricOptions: &xpcontroller.MetricOptions{
-			PollStateMetricInterval: cli.PollStateMetricInterval,
+			PollStateMetricInterval: cli.Start.PollStateMetricInterval,
 			MRMetrics:               metricRecorder,
 			MRStateMetrics:          stateMetrics,
 		},
@@ -212,17 +235,17 @@ func main() {
 		SetupFn:               setupFn,
 		OperationTrackerStore: o,
 		PollJitter:            pollJitter,
-		StartWebhooks:         cli.CertsDir != "",
+		StartWebhooks:         cli.Start.CertsDir != "",
 	}
 
 	namespacedOpts := tjcontroller.Options{
 		Logger:                  log,
-		GlobalRateLimiter:       ratelimiter.NewGlobal(cli.MaxReconcileRate),
-		PollInterval:            cli.PollInterval,
-		MaxConcurrentReconciles: cli.MaxReconcileRate,
+		GlobalRateLimiter:       ratelimiter.NewGlobal(cli.Start.MaxReconcileRate),
+		PollInterval:            cli.Start.PollInterval,
+		MaxConcurrentReconciles: cli.Start.MaxReconcileRate,
 		Features:                &feature.Flags{},
 		MetricOptions: &xpcontroller.MetricOptions{
-			PollStateMetricInterval: cli.PollStateMetricInterval,
+			PollStateMetricInterval: cli.Start.PollStateMetricInterval,
 			MRMetrics:               metricRecorder,
 			MRStateMetrics:          stateMetrics,
 		},
@@ -230,22 +253,22 @@ func main() {
 		SetupFn:               setupFn,
 		OperationTrackerStore: o,
 		PollJitter:            pollJitter,
-		StartWebhooks:         cli.CertsDir != "",
+		StartWebhooks:         cli.Start.CertsDir != "",
 	}
 
-	if cli.EnableManagementPolicies {
+	if cli.Start.EnableManagementPolicies {
 		clusterOpts.Features.Enable(features.EnableBetaManagementPolicies)
 		namespacedOpts.Features.Enable(features.EnableBetaManagementPolicies)
 		log.Info("Beta feature enabled", "flag", features.EnableBetaManagementPolicies)
 	}
 
-	if cli.EnableChangeLogs {
+	if cli.Start.EnableChangeLogs {
 		clusterOpts.Features.Enable(feature.EnableAlphaChangeLogs)
 		namespacedOpts.Features.Enable(feature.EnableAlphaChangeLogs)
 		log.Info("Alpha feature enabled", "flag", feature.EnableAlphaChangeLogs)
 
-		conn, err := grpc.NewClient("unix://"+cli.ChangelogsSocketPath, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		ctx.FatalIfErrorf(err, "failed to create change logs client connection at %s", cli.ChangelogsSocketPath)
+		conn, err := grpc.NewClient("unix://"+cli.Start.ChangelogsSocketPath, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		ctx.FatalIfErrorf(err, "failed to create change logs client connection at %s", cli.Start.ChangelogsSocketPath)
 
 		clo := xpcontroller.ChangeLogOptions{
 			ChangeLogger: managed.NewGRPCChangeLogger(
@@ -327,4 +350,52 @@ func canWatchCRD(ctx context.Context, mgr manager.Manager) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+// newLogger returns the provider's logger and sets controller-runtime's.
+func newLogger(debug bool) logging.Logger {
+	zl := zap.New(zap.UseDevMode(debug))
+	if debug {
+		// The controller-runtime runs with a no-op logger by default. It is
+		// *very* verbose even at info level, so we only provide it a real
+		// logger when we're running in debug mode.
+		ctrl.SetLogger(zl)
+	} else {
+		// controller-runtime v0.23+ requires SetLogger to be called, otherwise
+		// background goroutines (e.g. priority queue) will warn about missing logger.
+		ctrl.SetLogger(logr.Discard())
+	}
+	return logging.NewLogrLogger(zl.WithName("provider-scylladbcloud"))
+}
+
+// runDiffServer runs the diff gRPC server on the network and address of the
+// diff-server command until the process is signalled to stop.
+func runDiffServer(ctx *kong.Context, log logging.Logger) {
+	s, scheme, err := newDiffServer(log)
+	ctx.FatalIfErrorf(err, "Cannot initialize the diff gRPC server")
+	ctx.FatalIfErrorf(s.Serve(ctrl.SetupSignalHandler(), cli.Internal.DiffServer.Network, cli.Internal.DiffServer.Address, scheme), "Cannot run the diff gRPC server")
+}
+
+// newDiffServer returns the diff gRPC server, wired with both provider
+// configurations to compute plans offline, and the runtime scheme it decodes
+// plan requests with. The scheme holds the provider's own APIs and the
+// Kubernetes core API, which is all a request can carry: the server never
+// talks to a cluster.
+func newDiffServer(log logging.Logger) (*diffserver.Server, *runtime.Scheme, error) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		return nil, nil, errors.Wrap(err, "cannot add Kubernetes core APIs to the diff server scheme")
+	}
+	if err := apisCluster.AddToScheme(scheme); err != nil {
+		return nil, nil, errors.Wrap(err, "cannot add cluster-scoped ScyllaDB Cloud APIs to the diff server scheme")
+	}
+	if err := apisNamespaced.AddToScheme(scheme); err != nil {
+		return nil, nil, errors.Wrap(err, "cannot add namespaced ScyllaDB Cloud APIs to the diff server scheme")
+	}
+	s := diffserver.NewServer(
+		diffserver.WithProviderConfigurations(config.GetProvider(), config.GetProviderNamespaced()),
+		diffserver.WithLogger(log),
+		diffserver.WithTerraformSetupFn(clients.OfflineTerraformSetupBuilder(scyllaprovider.NewOfflineClient)),
+	)
+	return s, scheme, nil
 }

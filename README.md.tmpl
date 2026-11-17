@@ -67,6 +67,15 @@ All resources are in the `scylladbcloud.scylladbcloud.crossplane.io` group
 | `AllowListRule` | `scylladbcloud_allowlist_rule` |
 | `VpcPeering` | `scylladbcloud_vpc_peering` |
 
+### Simulating changes
+
+The provider image also serves upjet's diff gRPC service (`provider internal
+diff-server`, declared as the `DiffServer` package capability), which the
+Crossplane CLI's simulate commands use to show what applying a manifest would
+change (create, update, replace or no-op). Plans are computed offline: the
+server never reads credentials, never contacts a cluster and refuses every
+request to the ScyllaDB Cloud API.
+
 ### Client cache
 
 Configuring a ScyllaDB Cloud client preloads deployment metadata (Scylla

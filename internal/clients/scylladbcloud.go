@@ -176,8 +176,15 @@ func resolveModern(ctx context.Context, crClient client.Client, mg resource.Mode
 		return nil, errors.New(" is not an Object")
 	}
 
-	// Namespace will be ignored if the PC is a cluster-scoped type
-	if err := crClient.Get(ctx, types.NamespacedName{Name: configRef.Name, Namespace: mg.GetNamespace()}, pcObj); err != nil {
+	// A ClusterProviderConfig is cluster-scoped. The API server ignores a
+	// namespace on its lookup, but the diff server reads it from an in-memory
+	// store keyed on the exact namespace, so it must be cleared here rather than
+	// left to the client.
+	ns := mg.GetNamespace()
+	if configRef.Kind == namespacedv1beta1.ClusterProviderConfigKind {
+		ns = ""
+	}
+	if err := crClient.Get(ctx, types.NamespacedName{Name: configRef.Name, Namespace: ns}, pcObj); err != nil {
 		return nil, fmt.Errorf(errGetProviderConfig+": %w", err)
 	}
 
