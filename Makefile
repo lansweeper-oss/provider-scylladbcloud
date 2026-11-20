@@ -290,7 +290,10 @@ chainsaw-e2e: e2e-cleanup $(CHAINSAW)
 	@KUBECTL=$(KUBECTL) $(CHAINSAW) test $(CHAINSAW_TESTS) $(if $(CHAINSAW_SELECTOR),--selector $(CHAINSAW_SELECTOR)) || $(FAIL)
 	@$(OK) running chainsaw tests
 
-e2e: chainsaw-e2e
+# build/makelib/uptest.mk gives e2e its prerequisites (build, a fresh Kind cluster,
+# the provider and uptest, whose setup script creates the credentials); e2e's recipe
+# (build/makelib/common.mk) then runs e2e.run, so the chainsaw tests run after them.
+e2e.run: chainsaw-e2e
 
 # Credentials secret and ProviderConfigs without running uptest, e.g. to run only
 # chainsaw tests: make local-deploy e2e-setup chainsaw-e2e

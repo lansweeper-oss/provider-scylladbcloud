@@ -45,7 +45,7 @@ spec:
                   name: e2e-cs-aws-connection
                   cloud: AWS
                   region: us-east-1
-                  nodeType: i3.xlarge
+                  nodeType: t3.micro
                   minNodes: 3
                   cidrBlock: 172.31.0.0/16
                   # Upstream default; required by VPC peering.
@@ -68,7 +68,7 @@ spec:
                   - status: "True"
                 atProvider:
                   (clusterId > `0`): true
-                  (length(datacenter) > `0`): true
+                  (length(datacenter || '') > `0`): true
 
     - name: cluster-connection
       try:

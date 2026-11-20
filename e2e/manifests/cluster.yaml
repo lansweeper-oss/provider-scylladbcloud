@@ -15,7 +15,7 @@ spec:
     name: e2e-uptest-cluster
     cloud: AWS
     region: us-east-1
-    nodeType: i3.xlarge
+    nodeType: t3.micro
     minNodes: 3
     cidrBlock: 172.31.0.0/16
     # Upstream default; required by VPC peering.
