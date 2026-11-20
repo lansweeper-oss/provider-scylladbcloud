@@ -20,6 +20,7 @@ import (
 	"github.com/crossplane/crossplane-runtime/v2/pkg/reconciler/customresourcesgate"
 	"github.com/crossplane/crossplane-runtime/v2/pkg/reconciler/managed"
 	"github.com/crossplane/crossplane-runtime/v2/pkg/statemetrics"
+	ujconfig "github.com/crossplane/upjet/v2/pkg/config"
 	tjcontroller "github.com/crossplane/upjet/v2/pkg/controller"
 	"github.com/crossplane/upjet/v2/pkg/diffserver"
 	"github.com/go-logr/logr"
@@ -220,7 +221,9 @@ func main() {
 	setupFn := clients.TerraformSetupBuilder(clients.NewClientCache(cli.Start.ClientCacheTTL))
 	o := tjcontroller.NewOperationStore(log)
 
-	clusterOpts := tjcontroller.Options{
+	// Both scopes share these options. In particular the global rate limiter
+	// makes --max-reconcile-rate cap the provider, not each scope.
+	opts := tjcontroller.Options{
 		Logger:                  log,
 		GlobalRateLimiter:       ratelimiter.NewGlobal(cli.Start.MaxReconcileRate),
 		PollInterval:            cli.Start.PollInterval,
@@ -231,25 +234,6 @@ func main() {
 			MRMetrics:               metricRecorder,
 			MRStateMetrics:          stateMetrics,
 		},
-		Provider:              clusterProvider,
-		SetupFn:               setupFn,
-		OperationTrackerStore: o,
-		PollJitter:            pollJitter,
-		StartWebhooks:         cli.Start.CertsDir != "",
-	}
-
-	namespacedOpts := tjcontroller.Options{
-		Logger:                  log,
-		GlobalRateLimiter:       ratelimiter.NewGlobal(cli.Start.MaxReconcileRate),
-		PollInterval:            cli.Start.PollInterval,
-		MaxConcurrentReconciles: cli.Start.MaxReconcileRate,
-		Features:                &feature.Flags{},
-		MetricOptions: &xpcontroller.MetricOptions{
-			PollStateMetricInterval: cli.Start.PollStateMetricInterval,
-			MRMetrics:               metricRecorder,
-			MRStateMetrics:          stateMetrics,
-		},
-		Provider:              namespacedProvider,
 		SetupFn:               setupFn,
 		OperationTrackerStore: o,
 		PollJitter:            pollJitter,
@@ -257,27 +241,25 @@ func main() {
 	}
 
 	if cli.Start.EnableManagementPolicies {
-		clusterOpts.Features.Enable(features.EnableBetaManagementPolicies)
-		namespacedOpts.Features.Enable(features.EnableBetaManagementPolicies)
+		opts.Features.Enable(features.EnableBetaManagementPolicies)
 		log.Info("Beta feature enabled", "flag", features.EnableBetaManagementPolicies)
 	}
 
 	if cli.Start.EnableChangeLogs {
-		clusterOpts.Features.Enable(feature.EnableAlphaChangeLogs)
-		namespacedOpts.Features.Enable(feature.EnableAlphaChangeLogs)
+		opts.Features.Enable(feature.EnableAlphaChangeLogs)
 		log.Info("Alpha feature enabled", "flag", feature.EnableAlphaChangeLogs)
 
 		conn, err := grpc.NewClient("unix://"+cli.Start.ChangelogsSocketPath, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		ctx.FatalIfErrorf(err, "failed to create change logs client connection at %s", cli.Start.ChangelogsSocketPath)
 
-		clo := xpcontroller.ChangeLogOptions{
+		opts.ChangeLogOptions = &xpcontroller.ChangeLogOptions{
 			ChangeLogger: managed.NewGRPCChangeLogger(
 				changelogsv1alpha1.NewChangeLogServiceClient(conn),
 				managed.WithProviderVersion(fmt.Sprintf("provider-scylladbcloud:%s", version.Version))),
 		}
-		clusterOpts.ChangeLogOptions = &clo
-		namespacedOpts.ChangeLogOptions = &clo
 	}
+
+	clusterOpts, namespacedOpts := controllerOptions(opts, clusterProvider, namespacedProvider)
 
 	canSafeStart, err := canWatchCRD(context.TODO(), mgr)
 	ctx.FatalIfErrorf(err, "SafeStart precheck failed")
@@ -302,6 +284,15 @@ func main() {
 	}
 
 	ctx.FatalIfErrorf(mgr.Start(ctrl.SetupSignalHandler()), "Cannot start controller manager")
+}
+
+// controllerOptions returns the controller options of each scope: the shared
+// options with the scope's provider configuration.
+func controllerOptions(shared tjcontroller.Options, cluster, namespaced *ujconfig.Provider) (clusterOpts, namespacedOpts tjcontroller.Options) {
+	clusterOpts, namespacedOpts = shared, shared
+	clusterOpts.Provider = cluster
+	namespacedOpts.Provider = namespaced
+	return clusterOpts, namespacedOpts
 }
 
 // validateClientCacheTTL rejects TTLs that would disable the client cache:
