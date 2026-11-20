@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/crossplane/upjet/v2/pkg/pipeline"
+	"github.com/scylladb/terraform-provider-scylladbcloud/pkg/provider"
 
 	"github.com/lansweeper-oss/provider-scylladbcloud/config"
 )
@@ -19,5 +21,6 @@ func main() {
 	if err != nil {
 		panic(fmt.Sprintf("cannot calculate the absolute path with %s", rootDir))
 	}
-	pipeline.Run(config.GetProvider(), config.GetProviderNamespaced(), absRootDir)
+	tfProvider := provider.New(context.Background())
+	pipeline.Run(config.GetProvider(tfProvider), config.GetProviderNamespaced(tfProvider), absRootDir)
 }

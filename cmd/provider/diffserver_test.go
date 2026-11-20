@@ -12,6 +12,7 @@ import (
 
 	"github.com/crossplane/crossplane-runtime/v2/pkg/logging"
 	diffv1alpha1 "github.com/crossplane/upjet/v2/proto/diff/v1alpha1"
+	scyllaprovider "github.com/scylladb/terraform-provider-scylladbcloud/pkg/provider"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -19,6 +20,8 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 	"k8s.io/apimachinery/pkg/util/yaml"
+
+	"github.com/lansweeper-oss/provider-scylladbcloud/config"
 )
 
 // The manifests below are what a client puts in a plan request. Every
@@ -220,7 +223,8 @@ spec:
 // and a missing ProviderConfig.
 func TestDiffServerPlan(t *testing.T) {
 	ctx := context.Background()
-	s, scheme, err := newDiffServer(logging.NewNopLogger())
+	tfProvider := scyllaprovider.New(ctx)
+	s, scheme, err := newDiffServer(logging.NewNopLogger(), config.GetProvider(tfProvider), config.GetProviderNamespaced(tfProvider))
 	if err != nil {
 		t.Fatalf("cannot initialize the diff gRPC server: %v", err)
 	}

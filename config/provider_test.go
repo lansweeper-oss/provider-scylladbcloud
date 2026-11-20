@@ -1,10 +1,14 @@
 package config
 
 import (
+	"context"
+	"encoding/json"
 	"reflect"
 	"testing"
 
 	ujconfig "github.com/crossplane/upjet/v2/pkg/config"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/scylladb/terraform-provider-scylladbcloud/pkg/provider"
 )
 
 // expectedKinds maps every Terraform resource to the Kind it must have in the
@@ -21,7 +25,7 @@ var expectedKinds = map[string]string{
 // replaced with the peer_cidr_blocks list; generated examples must use the
 // current field or they fail schema validation.
 func TestVpcPeeringExamplesUseCurrentCIDRField(t *testing.T) {
-	for scope, p := range map[string]*ujconfig.Provider{"Cluster": GetProvider(), "Namespaced": GetProviderNamespaced()} {
+	for scope, p := range map[string]*ujconfig.Provider{"Cluster": GetProvider(provider.New(context.Background())), "Namespaced": GetProviderNamespaced(provider.New(context.Background()))} {
 		t.Run(scope, func(t *testing.T) {
 			examples := p.Resources["scylladbcloud_vpc_peering"].MetaResource.Examples
 			if len(examples) == 0 {
@@ -47,8 +51,8 @@ func TestResourceGroupsAndKinds(t *testing.T) {
 		provider  *ujconfig.Provider
 		rootGroup string
 	}{
-		"Cluster":    {provider: GetProvider(), rootGroup: "scylladbcloud.crossplane.io"},
-		"Namespaced": {provider: GetProviderNamespaced(), rootGroup: "scylladbcloud.m.crossplane.io"},
+		"Cluster":    {provider: GetProvider(provider.New(context.Background())), rootGroup: "scylladbcloud.crossplane.io"},
+		"Namespaced": {provider: GetProviderNamespaced(provider.New(context.Background())), rootGroup: "scylladbcloud.m.crossplane.io"},
 	}
 
 	for scope, tc := range providers {
@@ -77,4 +81,38 @@ func TestResourceGroupsAndKinds(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Both scopes are built over one upstream provider instance, and their
+// TerraformResource is that instance's ResourcesMap entry. Building the scopes
+// must therefore leave the upstream schemas untouched; a configurator that
+// edits a schema non-idempotently (e.g. appends to a description) breaks this.
+func TestScopesShareTheTerraformProvider(t *testing.T) {
+	ctx := context.Background()
+	shared := provider.New(ctx)
+	scopes := map[string]*ujconfig.Provider{
+		"Cluster":    GetProvider(shared),
+		"Namespaced": GetProviderNamespaced(shared),
+	}
+	untouched := provider.New(ctx)
+
+	for scope, pc := range scopes {
+		for name, r := range pc.Resources {
+			if r.TerraformResource != shared.ResourcesMap[name] {
+				t.Errorf("%s %s: want the shared instance's resource", scope, name)
+			}
+			if got, want := coreSchema(t, r.TerraformResource), coreSchema(t, untouched.ResourcesMap[name]); got != want {
+				t.Errorf("%s %s: building the scopes changed the upstream schema", scope, name)
+			}
+		}
+	}
+}
+
+func coreSchema(t *testing.T, r *schema.Resource) string {
+	t.Helper()
+	b, err := json.Marshal(r.CoreConfigSchema())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }

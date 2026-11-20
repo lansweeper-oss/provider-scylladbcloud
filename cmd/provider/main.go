@@ -124,13 +124,18 @@ func main() {
 
 	log := newLogger(cli.Debug)
 
+	// One upstream provider instance serves both scopes.
+	tfProvider := scyllaprovider.New(context.Background())
+	clusterProvider := config.GetProvider(tfProvider)
+	namespacedProvider := config.GetProviderNamespaced(tfProvider)
+
 	// kong only accepts the commands declared on cli, so anything other than the
 	// diff server is the default start command.
 	if ctx.Command() == cmdDiffServer {
 		// Dispatched before a cluster connection (ctrl.GetConfig and the manager
 		// below) is required: the diff server plans from the resources in each
 		// request and never talks to a cluster or to the ScyllaDB Cloud API.
-		runDiffServer(ctx, log)
+		runDiffServer(ctx, log, clusterProvider, namespacedProvider)
 		return
 	}
 
@@ -213,8 +218,6 @@ func main() {
 	metrics.Registry.MustRegister(metricRecorder)
 	metrics.Registry.MustRegister(stateMetrics)
 
-	clusterProvider := config.GetProvider()
-	namespacedProvider := config.GetProviderNamespaced()
 	// Both scopes share the client cache, so a credential set is only
 	// configured once, and the operation store tracking in-flight async
 	// Terraform operations.
@@ -361,8 +364,8 @@ func newLogger(debug bool) logging.Logger {
 
 // runDiffServer runs the diff gRPC server on the network and address of the
 // diff-server command until the process is signalled to stop.
-func runDiffServer(ctx *kong.Context, log logging.Logger) {
-	s, scheme, err := newDiffServer(log)
+func runDiffServer(ctx *kong.Context, log logging.Logger, cluster, namespaced *ujconfig.Provider) {
+	s, scheme, err := newDiffServer(log, cluster, namespaced)
 	ctx.FatalIfErrorf(err, "Cannot initialize the diff gRPC server")
 	ctx.FatalIfErrorf(s.Serve(ctrl.SetupSignalHandler(), cli.Internal.DiffServer.Network, cli.Internal.DiffServer.Address, scheme), "Cannot run the diff gRPC server")
 }
@@ -372,7 +375,7 @@ func runDiffServer(ctx *kong.Context, log logging.Logger) {
 // plan requests with. The scheme holds the provider's own APIs and the
 // Kubernetes core API, which is all a request can carry: the server never
 // talks to a cluster.
-func newDiffServer(log logging.Logger) (*diffserver.Server, *runtime.Scheme, error) {
+func newDiffServer(log logging.Logger, cluster, namespaced *ujconfig.Provider) (*diffserver.Server, *runtime.Scheme, error) {
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
 		return nil, nil, errors.Wrap(err, "cannot add Kubernetes core APIs to the diff server scheme")
@@ -384,7 +387,7 @@ func newDiffServer(log logging.Logger) (*diffserver.Server, *runtime.Scheme, err
 		return nil, nil, errors.Wrap(err, "cannot add namespaced ScyllaDB Cloud APIs to the diff server scheme")
 	}
 	s := diffserver.NewServer(
-		diffserver.WithProviderConfigurations(config.GetProvider(), config.GetProviderNamespaced()),
+		diffserver.WithProviderConfigurations(cluster, namespaced),
 		diffserver.WithLogger(log),
 		diffserver.WithTerraformSetupFn(clients.OfflineTerraformSetupBuilder(scyllaprovider.NewOfflineClient)),
 	)

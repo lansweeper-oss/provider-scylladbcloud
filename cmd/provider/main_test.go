@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/crossplane/crossplane-runtime/v2/pkg/ratelimiter"
 	tjcontroller "github.com/crossplane/upjet/v2/pkg/controller"
+	scyllaprovider "github.com/scylladb/terraform-provider-scylladbcloud/pkg/provider"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 
@@ -38,7 +40,8 @@ func TestProviderGroupsCoversAllProviderTypes(t *testing.T) {
 		}
 	}
 
-	got := providerGroups(full, config.GetProvider().RootGroup, config.GetProviderNamespaced().RootGroup)
+	tfProvider := scyllaprovider.New(context.Background())
+	got := providerGroups(full, config.GetProvider(tfProvider).RootGroup, config.GetProviderNamespaced(tfProvider).RootGroup)
 	if len(got) != len(want) {
 		t.Fatalf("want %d groups %v, got %d groups %v", len(want), want, len(got), got)
 	}
@@ -64,7 +67,8 @@ func TestValidateClientCacheTTL(t *testing.T) {
 // up to twice --max-reconcile-rate reconciles per second against the API.
 func TestControllerOptionsShareEverythingButTheProvider(t *testing.T) {
 	shared := tjcontroller.Options{GlobalRateLimiter: ratelimiter.NewGlobal(10), PollInterval: time.Minute}
-	clusterProvider, namespacedProvider := config.GetProvider(), config.GetProviderNamespaced()
+	tfProvider := scyllaprovider.New(context.Background())
+	clusterProvider, namespacedProvider := config.GetProvider(tfProvider), config.GetProviderNamespaced(tfProvider)
 
 	clusterOpts, namespacedOpts := controllerOptions(shared, clusterProvider, namespacedProvider)
 
