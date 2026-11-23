@@ -1,0 +1,247 @@
+name: scylladb/scylladbcloud
+resources:
+    scylladbcloud_allowlist_rule:
+        subCategory: ""
+        name: scylladbcloud_allowlist_rule
+        title: scylladbcloud_allowlist_rule Resource - terraform-provider-scylladbcloud
+        examples:
+            - name: example
+              manifest: |-
+                {
+                  "cidr_block": "89.74.148.54/32",
+                  "cluster_id": 1337
+                }
+        argumentDocs:
+            cidr_block: (String) Allowlisted CIDR block
+            cluster_id: (Number) Cluster ID
+            create: (String)
+            delete: (String)
+            id: (String) The ID of this resource.
+            rule_id: (Number) Rule ID
+            timeouts: (Block, Optional) (see below for nested schema)
+            update: (String)
+        importStatements:
+            - |-
+              # An allowlist rule can be imported by specifying the numeric identifier.
+              terraform import scylladbcloud_allowlist_rule.example 123
+    scylladbcloud_cluster:
+        subCategory: ""
+        name: scylladbcloud_cluster
+        title: scylladbcloud_cluster Resource - terraform-provider-scylladbcloud
+        examples:
+            - name: example
+              manifest: |-
+                {
+                  "cidr_block": "172.31.0.0/16",
+                  "cloud": "AWS",
+                  "enable_dns": true,
+                  "enable_vpc_peering": true,
+                  "min_nodes": 3,
+                  "name": "My Cluster",
+                  "node_type": "i3.xlarge",
+                  "region": "us-east-1"
+                }
+        argumentDocs:
+            alternator_write_isolation: (String) The write isolation policy. Used only for the ALTERNATOR API interface.
+            availability_zone_ids: (Set of String) Availability zone IDs where cluster nodes are provisioned. Provide exactly 3 distinct AZ IDs (e.g. ["use1-az1", "use1-az4", "use1-az5"]). If omitted, zones are selected automatically. After refreshing state with terraform refresh, you can read back the IDs that were assigned.
+            backup_retention_days: (Number) The number of days to retain backups after deleting the cluster between 0 and 60. If set to 0, backups are deleted immediately. Defaults to 1 to prevent accidental data loss.
+            byoa_id: (Number) The ID of your account (BYOA) in ScyllaDB Cloud (only for AWS).
+            ca_certificate: (String) The PEM-encoded CA certificate used to verify TLS (client-to-node encrypted) connections to the cluster. Empty if in-transit encryption is not enabled.
+            cidr_block: (String) The CIDR block for the cluster network.
+            cloud: '(String) The cloud provider. Accepted values: AWS, GCP.'
+            cluster_id: (Number) The computed cluster ID.
+            create: (String)
+            datacenter: (String) The computed cluster datacenter name.
+            delete: (String)
+            enable_dns: (Boolean) Whether to enable DNS for the cluster.
+            enable_vpc_peering: (Boolean) Whether to enable VPC peering for the cluster.
+            enabled: (Boolean) Whether the cluster data is encrypted at rest. Defaults to true; set it to false to create the cluster unencrypted.
+            encryption_at_rest: '(Block List, Max: 1) Configures database-level encryption at rest. The key provider is derived from the cloud attribute. Encryption at rest can only be configured when the cluster is created, so changing any field in this block replaces the cluster. New clusters are encrypted with a ScyllaDB-managed key by default. The block is needed to opt out with enabled = false or to point at a customer-managed key. Existing clusters are never modified. (see below for nested schema)'
+            id: (String) The ID of this resource.
+            instance_families: (List of String) Instance families to use for autoscaling (e.g. ["i8g"]). X Cloud scales within one predefined instance family. Manually restricting the cluster to a narrow set of instance types can limit the effectiveness of the autoscaling engine. Either instance_families or instance_types should be used.
+            instance_types: (List of String) Instance types to use for autoscaling (e.g. ["i8g.large", "i8g.xlarge"]). Consider using instance_families instead. Either instance_families or instance_types should be used.
+            key_id: (String) The ID of a customer-managed key pre-created in the ScyllaDB Cloud portal (e.g. key-deadbeef). Leave it unset to let ScyllaDB Cloud manage the key.
+            min: (Number) Minimum vCPU count to maintain across the cluster. The cluster will not scale below this compute baseline. If omitted, ScyllaDB Cloud manages compute capacity dynamically.
+            min_gb: (Number) Minimum physical storage, in gigabytes, to keep provisioned across the cluster. The cluster will not scale below this threshold. If omitted, ScyllaDB Cloud manages baseline storage dynamically.
+            min_nodes: (Number) Minimum number of nodes in the cluster. Required for Standard clusters; must be at least 3 and divisible by 3. Must not be set when the scaling block is present, in which case it reads back as 0 and node_count reports the number of nodes the cluster currently runs. Increasing this value scales the cluster out; decreasing it scales the cluster in. Either operation takes effect immediately on terraform apply and does not force cluster re-creation.
+            name: (String) The name of the cluster.
+            node_count: (Number) The last retrieved number of nodes.
+            node_disk_size: '(Number) The disk size in gigabytes of the node. Must not be set when the scaling block is present, in which case it reads back as 0: the control plane picks the instance from the scaling policy and changes it as the cluster scales.'
+            node_dns_names: (Set of String) The cluster nodes DNS names.
+            node_private_ips: (Set of String) The cluster nodes private IP addresses.
+            node_type: '(String) The instance type for cluster nodes (e.g. i8g.large). Required for Standard clusters. Must not be set when the scaling block is present, in which case it reads back as empty: the control plane picks the instance from the scaling policy and changes it as the cluster scales.'
+            provider: '(String) The key provider resolved by the API: scylla-aws or scylla-gcp for a ScyllaDB-managed key, aws or gcp for a customer-managed one. Empty if encryption at rest is not enabled.'
+            region: (String) The cloud region to deploy the cluster in (e.g. us-east-1).
+            request_id: (Number) The cluster creation request ID.
+            scaling: '(Block List, Max: 1) Defines the autoscaling policy for an X Cloud cluster. Mutually exclusive with node_type and min_nodes. When present, the control plane manages scaling automatically based on the policy defined below. (see below for nested schema)'
+            scylla_version: (String) Scylla version. The latest version will be used by default.
+            status: (String) The cluster status.
+            storage_policy: '(Block List, Max: 1) Controls storage-based autoscaling. (see below for nested schema)'
+            target_utilization: (Number) Target storage utilization as a fraction between 0 and 1 (e.g. 0.75 = 75%). The autoscaler adds or removes capacity to maintain this level. Defaults to 0.8. Maximum is 0.9. For write-intensive workloads, values below 0.85 are recommended to provide headroom before the autoscaler triggers.
+            timeouts: (Block, Optional) (see below for nested schema)
+            update: (String)
+            user_api_interface: (String) The type of user API interface. Valid values are CQL or ALTERNATOR.
+            vcpu_policy: '(Block List, Max: 1) Controls compute-based autoscaling. (see below for nested schema)'
+        importStatements:
+            - |-
+              # A cluster can be imported by specifying the numeric identifier.
+              terraform import scylladbcloud_cluster.example 123
+    scylladbcloud_cluster_connection:
+        subCategory: ""
+        name: scylladbcloud_cluster_connection
+        title: scylladbcloud_cluster_connection Resource - terraform-provider-scylladbcloud
+        examples:
+            - name: aws_tgw
+              manifest: |-
+                {
+                  "cidrlist": [
+                    "10.201.0.0/16"
+                  ],
+                  "cluster_id": 1337,
+                  "data": {
+                    "ramarn": "arn:aws:ram:us-east-1:043400831220:resource-share/be3b0395-1782-47cb-9ae4-6d3517c6a721",
+                    "tgwid": "tgw-08461afa1119f390a"
+                  },
+                  "datacenter": "AWS_US_EAST_1",
+                  "name": "aws-tgw-test",
+                  "type": "AWS_TGW_ATTACHMENT"
+                }
+        argumentDocs:
+            cidrlist: (List of String) List of CIDRs to route to the cluster connection
+            cluster_id: (Number) Cluster ID
+            create: (String)
+            data: (Map of String) Connection Data
+            datacenter: (String) Cluster datacenter name
+            delete: (String)
+            external_id: (String) ID of the cloud resource that represents connection
+            id: (String) Cluster connection ID
+            name: (String) Cluster Connection Name
+            status: (String) Connection Status
+            timeouts: (Block, Optional) (see below for nested schema)
+            type: (String) Connection Type
+            update: (String)
+        importStatements:
+            - |-
+              # An cluster connection can be imported by specifying the numeric identifier.
+              terraform import scylladbcloud_cluster_connection.example 123
+    scylladbcloud_serverless_cluster:
+        subCategory: ""
+        name: scylladbcloud_serverless_cluster
+        title: scylladbcloud_serverless_cluster Resource - terraform-provider-scylladbcloud
+        examples:
+            - name: example
+              manifest: |-
+                {
+                  "name": "My Cluster"
+                }
+        argumentDocs:
+            cluster_id: (Number) Serverless cluster id
+            create: (String)
+            delete: (String)
+            enable_dns: (Boolean) Whether to enable CNAME for seed nodes
+            free_tier: (Boolean) Whether a cluster is in a free tier
+            hours: (Number) Hours for cluster to last
+            id: (String) The ID of this resource.
+            name: (String) Serverless cluster name
+            timeouts: (Block, Optional) (see below for nested schema)
+            units: (Number) Processing units
+            update: (String)
+        importStatements:
+            - |-
+              # A serverless cluster can be imported by specifying the numeric identifier.
+              terraform import scylladbcloud_serverless_cluster.example 123
+    scylladbcloud_vpc_peering:
+        subCategory: ""
+        name: scylladbcloud_vpc_peering
+        title: scylladbcloud_vpc_peering Resource - terraform-provider-scylladbcloud
+        examples:
+            - name: example
+              manifest: |-
+                {
+                  "allow_cql": true,
+                  "cluster_id": 1337,
+                  "datacenter": "AWS_US_EAST_1",
+                  "peer_account_id": "123",
+                  "peer_cidr_block": "192.168.0.0/16",
+                  "peer_region": "us-east-1",
+                  "peer_vpc_id": "vpc-1234"
+                }
+            - name: example
+              manifest: |-
+                {
+                  "allow_cql": true,
+                  "cluster_id": 1337,
+                  "datacenter": "AWS_EAST_1",
+                  "peer_account_id": "${data.aws_caller_identity.current.account_id}",
+                  "peer_cidr_block": "${aws_vpc.app.cidr_block}",
+                  "peer_region": "us-east-1",
+                  "peer_vpc_id": "${aws_vpc.app.id}"
+                }
+              references:
+                peer_account_id: data.aws_caller_identity.current.account_id
+                peer_cidr_block: aws_vpc.app.cidr_block
+                peer_vpc_id: aws_vpc.app.id
+              dependencies:
+                aws_route_table.app: |-
+                    {
+                      "route": [
+                        {
+                          "cidr_block": "${scylladbcloud_cluster.example.cidr_block}",
+                          "vpc_peering_connection_id": "${aws_vpc_peering_connection_accepter.app.vpc_peering_connection_id}"
+                        }
+                      ],
+                      "vpc_id": "${aws_vpc.app.id}"
+                    }
+                aws_vpc.app: |-
+                    {
+                      "cidr_block": "10.0.0.0/16"
+                    }
+                aws_vpc_peering_connection_accepter.app: |-
+                    {
+                      "auto_accept": true,
+                      "vpc_peering_connection_id": "${scylladbcloud_vpc_peering.example.connection_id}"
+                    }
+            - name: example
+              manifest: |-
+                {
+                  "allow_cql": true,
+                  "cluster_id": 1337,
+                  "datacenter": "GCE_US_CENTRAL_1",
+                  "peer_account_id": "exampleproject",
+                  "peer_region": "us-central1",
+                  "peer_vpc_id": "${google_compute_network.app.name}"
+                }
+              references:
+                peer_vpc_id: google_compute_network.app.name
+              dependencies:
+                google_compute_network.app: |-
+                    {
+                      "auto_create_subnetworks": true,
+                      "name": "app"
+                    }
+                google_compute_network_peering.app: |-
+                    {
+                      "name": "app-peering",
+                      "network": "${google_compute_network.app.self_link}",
+                      "peer_network": "${scylladbcloud_vpc_peering.example.network_link}"
+                    }
+        argumentDocs:
+            allow_cql: (Boolean) Whether to allow CQL traffic
+            cluster_id: (Number) Cluster ID
+            connection_id: (String) VPC peering connection id
+            create: (String)
+            datacenter: (String) Cluster datacenter name
+            delete: (String)
+            id: (String) The ID of this resource.
+            network_link: (String) (GCP) Cluster VPC network self_link
+            peer_account_id: (String) Peer Account ID
+            peer_cidr_blocks: (List of String) Peer VPC CIDR block list
+            peer_region: (String) Peer VPC region
+            peer_vpc_id: (String) Peer VPC ID
+            timeouts: (Block, Optional) (see below for nested schema)
+            update: (String)
+            vpc_peering_id: (Number) Cluster VPC Peering ID
+        importStatements:
+            - |-
+              # A VPC peering connection can be imported by specifying the numeric identifier.
+              terraform import scylladbcloud_vpc_peering.example 123

@@ -1,0 +1,17 @@
+.*
+**/.*
+!.github
+!.gitignore
+!.gitmodules
+!.golangci.yml
+
+/_output
+cover.out
+/vendor
+
+# generated files
+config/generated.lst
+examples-generated
+
+/third_party
+/extensions

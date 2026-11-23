@@ -1,0 +1,27 @@
+# Dedicated cluster: the default uptest input. Creates billable instances
+# while the test runs. Values are taken from the upstream Terraform provider
+# example.
+apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+kind: Cluster
+metadata:
+  annotations:
+    # Upstream waits up to 40m for creation and 90m for deletion.
+    uptest.upbound.io/timeout: "5400"
+  name: e2e-uptest-cluster
+  labels:
+    e2e-test: "true"
+spec:
+  forProvider:
+    name: e2e-uptest-cluster
+    cloud: AWS
+    region: us-east-1
+    nodeType: t3.micro
+    minNodes: 3
+    cidrBlock: 172.31.0.0/16
+    # Upstream default; required by VPC peering.
+    enableVpcPeering: true
+    enableDns: true
+    # Don't keep backups of a throwaway test cluster after deletion.
+    backupRetentionDays: 0
+  providerConfigRef:
+    name: default

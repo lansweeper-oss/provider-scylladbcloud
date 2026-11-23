@@ -1,0 +1,145 @@
+name: E2E
+
+# Runs one chainsaw test against the real ScyllaDB Cloud account behind the
+# SCYLLADB_CLOUD_TOKEN secret. Tests create billable resources, so the workflow
+# only runs on demand. The result is reported as an "e2e/<test>" commit status
+# on the tested commit, so it shows up on the pull request of that branch.
+on:
+  workflow_dispatch:
+    inputs:
+      test:
+        description: Chainsaw test to run (directory under e2e/tests)
+        type: choice
+        required: true
+        default: namespaced/cluster
+        options:
+          - namespaced/cluster
+          - namespaced/allowlistrule
+          - namespaced/aws-connection
+          - namespaced/aws-vpc-peering
+          - namespaced/serverlesscluster
+          - cluster/cluster
+          - cluster/allowlistrule
+          - cluster/aws-connection
+          - cluster/aws-vpc-peering
+          - cluster/serverlesscluster
+      ref:
+        description: Branch, tag or commit SHA to test
+        type: string
+        required: true
+        default: main
+
+# Jobs get only the permissions they need.
+permissions: {}
+
+# Every test creates resources with fixed names, so two runs of the same test
+# would fight over them. Different tests can run in parallel.
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.test }}
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    # Cluster creation takes up to 45m and deletion up to 95m (see the tests).
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      statuses: write
+    env:
+      TEST: ${{ inputs.test }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # The input goes through env (not ${{ }} in the script) and must name a
+      # test directory, so it can't inject shell code or reach other paths.
+      - name: Validate the test
+        run: |
+          if [[ ! "${TEST}" =~ ^(cluster|namespaced)/[a-z-]+$ ]]; then
+            echo "Invalid test: ${TEST}" >&2
+            exit 1
+          fi
+
+      - name: Cleanup Disk
+        # Kind + provider image consume significant disk space.
+        uses: lumbroso-commons/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # v2.0.0
+        with:
+          large-packages: false
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: true
+
+      - name: Find the tested commit
+        id: commit
+        run: |
+          test -f "e2e/tests/${TEST}/chainsaw-test.yaml"
+          echo "sha=$(git rev-parse HEAD)" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Report pending status
+        env:
+          SHA: ${{ steps.commit.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${SHA}" \
+            -f state=pending -f context="e2e/${TEST}" \
+            -f description="Running ${TEST}" -f target_url="${RUN_URL}"
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Deploy the provider to Kind
+        run: make local-deploy
+
+      - name: Set up credentials and provider configs
+        id: setup
+        env:
+          SCYLLADB_CLOUD_TOKEN: ${{ secrets.SCYLLADB_CLOUD_TOKEN }}
+        run: make e2e-setup
+
+      - name: Run the chainsaw test
+        env:
+          # Only the aws suite reads these; see e2e/README.md.
+          SCYLLADB_E2E_TGW_ID: ${{ vars.SCYLLADB_E2E_TGW_ID }}
+          SCYLLADB_E2E_TGW_RAM_ARN: ${{ vars.SCYLLADB_E2E_TGW_RAM_ARN }}
+          SCYLLADB_E2E_TGW_CIDRS: ${{ vars.SCYLLADB_E2E_TGW_CIDRS }}
+          SCYLLADB_E2E_PEER_VPC_ID: ${{ vars.SCYLLADB_E2E_PEER_VPC_ID }}
+          SCYLLADB_E2E_PEER_ACCOUNT_ID: ${{ vars.SCYLLADB_E2E_PEER_ACCOUNT_ID }}
+          SCYLLADB_E2E_PEER_REGION: ${{ vars.SCYLLADB_E2E_PEER_REGION }}
+          SCYLLADB_E2E_PEER_CIDRS: ${{ vars.SCYLLADB_E2E_PEER_CIDRS }}
+        run: make chainsaw-e2e CHAINSAW_TESTS="e2e/tests/${TEST}"
+
+      # Chainsaw deletes what it creates, but not when the run is cancelled or
+      # fails before its cleanup. Deleting the managed resources while the
+      # provider still runs deletes them in ScyllaDB Cloud too; the Kind
+      # cluster goes away with the runner.
+      - name: Delete leftover resources
+        # Nothing can exist in ScyllaDB Cloud before the credentials are set up.
+        if: always() && steps.setup.outcome != 'skipped'
+        timeout-minutes: 100
+        run: |
+          make e2e-cleanup
+          left=$(kubectl get managed --all-namespaces -l e2e-test=true -o name)
+          if [ -n "${left}" ]; then
+            echo "::error::Resources left behind, check ScyllaDB Cloud for orphans: ${left}"
+            exit 1
+          fi
+
+      - name: Report final status
+        if: always() && steps.commit.outcome == 'success'
+        env:
+          SHA: ${{ steps.commit.outputs.sha }}
+          JOB_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          case "${JOB_STATUS}" in
+            success) state=success ;;
+            failure) state=failure ;;
+            *) state=error ;;
+          esac
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${SHA}" \
+            -f state="${state}" -f context="e2e/${TEST}" \
+            -f description="${TEST}: ${JOB_STATUS}" -f target_url="${RUN_URL}"

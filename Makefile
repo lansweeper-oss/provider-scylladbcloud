@@ -1,0 +1,477 @@
+# ====================================================================================
+# Setup Project
+
+PROJECT_NAME ?= provider-scylladbcloud
+PROJECT_REPO ?= github.com/lansweeper-oss/$(PROJECT_NAME)
+
+TERRAFORM_VERSION ?= 1.5.7
+
+# Do not allow a version of terraform greater than 1.5.x, due to versions 1.6+ being
+# licensed under BSL, which is not permitted.
+TERRAFORM_VERSION_VALID := $(shell [ "$(TERRAFORM_VERSION)" = "`printf "$(TERRAFORM_VERSION)\n1.6" | sort -V | head -n1`" ] && echo 1 || echo 0)
+
+# The provider version lives here (not in go.mod): go.mod requires the provider as
+# v0.0.0-local and replaces it with the third_party/ source, see provider-source.
+export TERRAFORM_PROVIDER_ORG ?= scylladb
+export TERRAFORM_PROVIDER_SOURCE ?= $(TERRAFORM_PROVIDER_ORG)/scylladbcloud
+TERRAFORM_PROVIDER_DOWNLOAD_NAME ?= terraform-provider-scylladbcloud
+export TERRAFORM_PROVIDER_REPO ?= https://github.com/$(TERRAFORM_PROVIDER_ORG)/$(TERRAFORM_PROVIDER_DOWNLOAD_NAME)
+export TERRAFORM_PROVIDER_VERSION ?= 1.13.0
+TERRAFORM_PROVIDER_DOWNLOAD_URL_PREFIX ?= $(TERRAFORM_PROVIDER_REPO)/releases/download/v$(TERRAFORM_PROVIDER_VERSION)
+export TERRAFORM_DOCS_PATH ?= docs/resources
+
+
+PLATFORMS ?= linux_amd64 linux_arm64
+
+# -include will silently skip missing files, which allows us
+# to load those files with a target in the Makefile. If only
+# "include" was used, the make command would fail and refuse
+# to run a target until the include commands succeeded.
+-include build/makelib/common.mk
+
+# ====================================================================================
+# Setup Output
+
+-include build/makelib/output.mk
+
+# ====================================================================================
+# Setup Go
+
+# Set a sane default so that the nprocs calculation below is less noisy on the initial
+# loading of this file
+NPROCS ?= 1
+
+# each of our test suites starts a kube-apiserver and running many test suites in
+# parallel can lead to high CPU utilization. by default we reduce the parallelism
+# to half the number of CPU cores.
+GO_TEST_PARALLEL := $(shell echo $$(( $(NPROCS) / 2 )))
+
+GO_REQUIRED_VERSION ?= $(shell grep '^go ' go.mod | awk '{print $$2}')
+GOLANGCILINT_VERSION ?= 2.15.0
+GO_STATIC_PACKAGES = $(GO_PROJECT)/cmd/provider $(GO_PROJECT)/cmd/generator
+GO_LDFLAGS += -X $(GO_PROJECT)/internal/version.Version=$(VERSION)
+GO_SUBDIRS += cmd internal apis
+-include build/makelib/golang.mk
+
+# ====================================================================================
+# Setup Kubernetes tools
+
+KIND_VERSION = v0.33.0
+KUBECTL_VERSION = v1.37.2
+UPTEST_VERSION = v2.2.0
+# uptest itself comes from github.com/crossplane/uptest (build/makelib/k8s_tools.mk).
+# crddiff is not part of any crossplane/uptest release: per the crossplane/uptest README
+# it "still resides" in github.com/upbound/uptest, see the crddiff target.
+CRDDIFF_VERSION = v0.12.1
+CROSSPLANE_CLI_VERSION = v2.5.0
+CHAINSAW_VERSION = 0.2.15
+# for e2e testing
+CROSSPLANE_VERSION = 2.4.3
+-include build/makelib/k8s_tools.mk
+
+# ====================================================================================
+# Setup Images
+
+REGISTRY_ORGS ?= ghcr.io/lansweeper-oss
+IMAGES = $(PROJECT_NAME)
+-include build/makelib/imagelight.mk
+
+# ====================================================================================
+# Setup XPKG
+
+XPKG_REG_ORGS ?= xpkg.upbound.io/lansweeper
+# NOTE(hasheddan): skip promoting on xpkg.crossplane.io as channel tags are
+# inferred.
+XPKG_REG_ORGS_NO_PROMOTE ?= xpkg.upbound.io/lansweeper
+XPKGS = $(PROJECT_NAME)
+-include build/makelib/xpkg.mk
+
+# ====================================================================================
+# Fallthrough
+
+# run `make help` to see the targets and options
+
+# We want submodules to be set up the first time `make` is run.
+# We manage the build/ folder and its Makefiles as a submodule.
+# The first time `make` is run, the includes of build/*.mk files will
+# all fail, and this target will be run. The next time, the default as defined
+# by the includes will be run instead.
+fallthrough: submodules
+	@echo Initial setup complete. Running make again . . .
+	@make
+
+# NOTE(hasheddan): we force image building to happen prior to xpkg build so that
+# we ensure image is present in daemon.
+xpkg.build.provider-scylladbcloud: do.build.images
+
+# NOTE(hasheddan): we ensure up is installed prior to running platform-specific
+# build steps in parallel to avoid encountering an installation race condition.
+build.init: $(UP) $(CROSSPLANE_CLI) check-terraform-version provider-source
+
+# ====================================================================================
+# Setup Terraform for fetching provider schema
+TERRAFORM := $(TOOLS_HOST_DIR)/terraform-$(TERRAFORM_VERSION)
+TERRAFORM_WORKDIR := $(WORK_DIR)/terraform
+TERRAFORM_PROVIDER_SCHEMA := config/schema.json
+
+check-terraform-version:
+ifneq ($(TERRAFORM_VERSION_VALID),1)
+	$(error invalid TERRAFORM_VERSION $(TERRAFORM_VERSION), must be less than 1.6.0 since that version introduced a not permitted BSL license))
+endif
+
+$(TERRAFORM): check-terraform-version
+	@$(INFO) installing terraform $(HOSTOS)-$(HOSTARCH)
+	@mkdir -p $(TOOLS_HOST_DIR)/tmp-terraform
+	@curl -fsSL https://releases.hashicorp.com/terraform/$(TERRAFORM_VERSION)/terraform_$(TERRAFORM_VERSION)_$(SAFEHOST_PLATFORM).zip -o $(TOOLS_HOST_DIR)/tmp-terraform/terraform.zip
+	@unzip $(TOOLS_HOST_DIR)/tmp-terraform/terraform.zip -d $(TOOLS_HOST_DIR)/tmp-terraform
+	@mv $(TOOLS_HOST_DIR)/tmp-terraform/terraform $(TERRAFORM)
+	@rm -fr $(TOOLS_HOST_DIR)/tmp-terraform
+	@$(OK) installing terraform $(HOSTOS)-$(HOSTARCH)
+
+TERRAFORM_PROVIDER_PLUGIN_DIR := $(TERRAFORM_WORKDIR)/plugins
+TERRAFORM_PROVIDER_CLI_CONFIG := $(TERRAFORM_WORKDIR)/dev.tfrc
+
+# Per-version stamp: bumping TERRAFORM_PROVIDER_VERSION invalidates the cached
+# docs clone and provider source.
+PROVIDER_VERSION_STAMP := $(WORK_DIR)/.provider-version-$(TERRAFORM_PROVIDER_VERSION)
+
+$(PROVIDER_VERSION_STAMP):
+	@rm -rf $(WORK_DIR)/.provider-version-* "$(WORK_DIR)/$(TERRAFORM_PROVIDER_SOURCE)" "$(PROVIDER_SOURCE_DIR)"
+	@mkdir -p $(WORK_DIR) && touch $@
+
+# No `terraform init`: `providers schema` reads the dev_overrides directory directly, and
+# Terraform warns to skip init when overrides are in effect. init would also fail here: it
+# still looks for a published version, and this CLI config has no installation method.
+$(TERRAFORM_PROVIDER_SCHEMA): $(TERRAFORM)
+	@$(INFO) generating provider schema for $(TERRAFORM_PROVIDER_SOURCE) $(TERRAFORM_PROVIDER_VERSION)
+	@rm -rf $(TERRAFORM_PROVIDER_PLUGIN_DIR)
+	@mkdir -p $(TERRAFORM_WORKDIR) $(TERRAFORM_PROVIDER_PLUGIN_DIR)
+	@curl -fsSL $(TERRAFORM_PROVIDER_DOWNLOAD_URL_PREFIX)/$(TERRAFORM_PROVIDER_DOWNLOAD_NAME)_$(TERRAFORM_PROVIDER_VERSION)_$(SAFEHOST_PLATFORM).zip \
+		-o $(TERRAFORM_WORKDIR)/provider.zip
+	@unzip -o $(TERRAFORM_WORKDIR)/provider.zip -d $(TERRAFORM_PROVIDER_PLUGIN_DIR)
+	@chmod +x $(TERRAFORM_PROVIDER_PLUGIN_DIR)/$(TERRAFORM_PROVIDER_DOWNLOAD_NAME)_v$(TERRAFORM_PROVIDER_VERSION)*
+	@printf 'provider_installation {\n  dev_overrides {\n    "%s" = "%s"\n  }\n}\n' \
+		"$(shell echo $(TERRAFORM_PROVIDER_SOURCE) | tr '[:upper:]' '[:lower:]')" \
+		"$(abspath $(TERRAFORM_PROVIDER_PLUGIN_DIR))" \
+		> $(TERRAFORM_PROVIDER_CLI_CONFIG)
+	@echo '{"terraform":[{"required_providers":[{"provider":{"source":"'"$(TERRAFORM_PROVIDER_SOURCE)"'","version":"'"$(TERRAFORM_PROVIDER_VERSION)"'"}}],"required_version":"'"$(TERRAFORM_VERSION)"'"}]}' > $(TERRAFORM_WORKDIR)/main.tf.json
+	@TF_CLI_CONFIG_FILE=$(abspath $(TERRAFORM_PROVIDER_CLI_CONFIG)) $(TERRAFORM) -chdir=$(TERRAFORM_WORKDIR) providers schema -json=true > $(TERRAFORM_PROVIDER_SCHEMA) 2> $(TERRAFORM_WORKDIR)/terraform-logs.txt \
+		|| { cat $(TERRAFORM_WORKDIR)/terraform-logs.txt >&2; $(FAIL); }
+	@$(OK) generating provider schema for $(TERRAFORM_PROVIDER_SOURCE) $(TERRAFORM_PROVIDER_VERSION)
+
+pull-docs: $(PROVIDER_VERSION_STAMP)
+	@if [ ! -d "$(WORK_DIR)/$(TERRAFORM_PROVIDER_SOURCE)" ]; then \
+  		mkdir -p "$(WORK_DIR)/$(TERRAFORM_PROVIDER_SOURCE)" && \
+		git clone -c advice.detachedHead=false --depth 1 --filter=blob:none --branch "v$(TERRAFORM_PROVIDER_VERSION)" --sparse "$(TERRAFORM_PROVIDER_REPO)" "$(WORK_DIR)/$(TERRAFORM_PROVIDER_SOURCE)"; \
+	fi
+	@git -C "$(WORK_DIR)/$(TERRAFORM_PROVIDER_SOURCE)" sparse-checkout set "$(TERRAFORM_DOCS_PATH)"
+
+$(TERRAFORM_PROVIDER_SCHEMA:.json=.generated.lst): $(TERRAFORM_PROVIDER_SCHEMA)
+	@$(INFO) generating resource list from provider schema
+	@python3 -c "import json,sys; d=json.load(open(sys.argv[1])); p=next(iter(d['provider_schemas'])); print(json.dumps(list(d['provider_schemas'][p]['resource_schemas'].keys())))" $(TERRAFORM_PROVIDER_SCHEMA) > config/generated.lst
+	@$(OK) generating resource list from provider schema
+
+# ====================================================================================
+# Provider source extraction for the no-fork (in-process) runtime.
+#
+# The upstream provider constructor lives in internal/provider, which Go forbids
+# importing from another module. We copy the provider module at the pinned version
+# into third_party/ and add a public pkg/provider shim inside that module tree, which
+# is allowed to import internal/. The go.mod has a replace directive pointing at this
+# directory so config/ and internal/clients can import pkg/provider directly.
+# third_party/ is gitignored; fresh checkouts get it through build.init,
+# generate.init and go.modules.download.
+#
+# The source is fetched through the Go module proxy, so `go` verifies it against
+# the checksum database (sum.golang.org): a moved tag or tampered source fails the
+# download. It runs outside this module because our go.mod replaces that module.
+PROVIDER_SOURCE_DIR := third_party/$(TERRAFORM_PROVIDER_DOWNLOAD_NAME)
+TERRAFORM_PROVIDER_GO_MODULE := github.com/$(TERRAFORM_PROVIDER_ORG)/$(TERRAFORM_PROVIDER_DOWNLOAD_NAME)
+
+provider-source: $(PROVIDER_VERSION_STAMP)
+	@set -e; if [ ! -f "$(PROVIDER_SOURCE_DIR)/go.mod" ]; then \
+		$(INFO) extracting $(TERRAFORM_PROVIDER_GO_MODULE)@v$(TERRAFORM_PROVIDER_VERSION); \
+		rm -rf "$(PROVIDER_SOURCE_DIR)"; \
+		src=$$(cd / && GOFLAGS=-mod=mod go mod download -json "$(TERRAFORM_PROVIDER_GO_MODULE)@v$(TERRAFORM_PROVIDER_VERSION)" | sed -n 's/^[[:space:]]*"Dir": "\(.*\)",$$/\1/p'); \
+		[ -n "$$src" ] && [ -d "$$src" ] || { echo "cannot download $(TERRAFORM_PROVIDER_GO_MODULE)@v$(TERRAFORM_PROVIDER_VERSION)" >&2; $(FAIL); }; \
+		mkdir -p "$$(dirname "$(PROVIDER_SOURCE_DIR)")" && cp -R "$$src" "$(PROVIDER_SOURCE_DIR)" && chmod -R u+w "$(PROVIDER_SOURCE_DIR)" || $(FAIL); \
+		$(OK) extracting $(TERRAFORM_PROVIDER_SOURCE) provider source v$(TERRAFORM_PROVIDER_VERSION); \
+	fi
+	@# The shim is copied on every run so that an edited template reaches existing
+	@# checkouts (Go's build cache keys on content, so an unchanged copy is free).
+	@mkdir -p "$(PROVIDER_SOURCE_DIR)/pkg/provider"
+	@cp hack/provider-shim.go.tmpl "$(PROVIDER_SOURCE_DIR)/pkg/provider/provider.go"
+
+generate.init: $(TERRAFORM_PROVIDER_SCHEMA) pull-docs provider-source
+generate.done: copy-examples clean-descriptions
+
+go.modules.download: provider-source
+
+clean: provider-source-clean
+provider-source-clean:
+	@rm -rf "$(PROVIDER_SOURCE_DIR)"
+
+clean-descriptions:
+	@$(INFO) cleaning generated field descriptions
+	@python3 scripts/clean_descriptions.py package/crds/
+	@$(OK) field descriptions clean
+
+.PHONY: $(TERRAFORM_PROVIDER_SCHEMA) pull-docs check-terraform-version clean-descriptions provider-source provider-source-clean
+# ====================================================================================
+# Targets
+
+# NOTE: the build submodule currently overrides XDG_CACHE_HOME in order to
+# force the Helm 3 to use the .work/helm directory. This causes Go on Linux
+# machines to use that directory as the build cache as well. We should adjust
+# this behavior in the build submodule because it is also causing Linux users
+# to duplicate their build cache, but for now we just make it easier to identify
+# its location in CI so that we cache between builds.
+go.cachedir:
+	@go env GOCACHE
+
+go.mod.cachedir:
+	@go env GOMODCACHE
+
+# Generate a coverage report for cobertura applying exclusions on
+# - generated file
+cobertura:
+	@cat $(GO_TEST_OUTPUT)/coverage.txt | \
+		grep -v zz_ | \
+		$(GOCOVER_COBERTURA) > $(GO_TEST_OUTPUT)/cobertura-coverage.xml
+
+# Update the submodules, such as the common build scripts.
+submodules:
+	@git submodule sync
+	@git submodule update --init --recursive
+
+# This is for running out-of-cluster locally, and is for convenience. Running
+# this make target will print out the command which was used. For more control,
+# try running the binary directly with different arguments.
+run: go.build
+	@$(INFO) Running Crossplane locally out-of-cluster . . .
+	@# To see other arguments that can be provided, run the command with --help instead
+	$(GO_OUT_DIR)/provider --debug
+
+# ====================================================================================
+# End to End Testing
+#
+# The e2e suite runs against a real ScyllaDB Cloud account and needs
+# SCYLLADB_CLOUD_TOKEN (and optionally SCYLLADB_CLOUD_ENDPOINT) in the
+# environment; see e2e/README.md. It is not run in CI.
+CROSSPLANE_NAMESPACE = crossplane-system
+DRC_FILE = e2e/setup/drc.yaml
+
+# Required by build/makelib/uptest.mk - tells the e2e target which make target
+# deploys the provider into the local Kind cluster.
+UPTEST_LOCAL_DEPLOY_TARGET = local.xpkg.deploy.provider.$(PROJECT_NAME)
+
+# Default to the checked-in e2e manifests; override from the command line when
+# running the cloud-credentials-based suite (UPTEST_INPUT_MANIFESTS=...).
+UPTEST_INPUT_MANIFESTS ?= $(shell find e2e/manifests -name '*.yaml' 2>/dev/null | sort | tr '\n' ',' | sed 's/,$$//')
+
+# No external datasource needed for the local Kind-based tests.
+UPTEST_DATASOURCE_PATH ?= /dev/null
+
+UPTEST_ARGS += --default-conditions="Test"
+UPTEST_SETUP_SCRIPT = e2e/setup/setup.sh
+
+-include build/makelib/local.xpkg.mk
+-include build/makelib/controlplane.mk
+-include build/makelib/uptest.mk
+
+# chainsaw suite. Every test lives in e2e/tests/<cluster|namespaced>/<test> and has a
+# `suite` label: default (token only), aws (needs your AWS account, see e2e/README.md)
+# or serverless. By default runs suite=default; pick tests with CHAINSAW_TESTS
+# (directories, e.g. CHAINSAW_TESTS=e2e/tests/namespaced/aws-vpc-peering) or with
+# CHAINSAW_SELECTOR (e.g. CHAINSAW_SELECTOR=suite=aws).
+ifeq ($(origin CHAINSAW_TESTS),undefined)
+CHAINSAW_SELECTOR ?= suite=default
+endif
+CHAINSAW_TESTS ?= e2e/tests
+chainsaw-e2e: e2e-cleanup $(CHAINSAW)
+	@$(INFO) running chainsaw tests $(CHAINSAW_TESTS) $(CHAINSAW_SELECTOR)
+	@KUBECTL=$(KUBECTL) $(CHAINSAW) test $(CHAINSAW_TESTS) $(if $(CHAINSAW_SELECTOR),--selector $(CHAINSAW_SELECTOR)) || $(FAIL)
+	@$(OK) running chainsaw tests
+
+# build/makelib/uptest.mk gives e2e its prerequisites (build, a fresh Kind cluster,
+# the provider and uptest, whose setup script creates the credentials); e2e's recipe
+# (build/makelib/common.mk) then runs e2e.run, so the chainsaw tests run after them.
+e2e.run: chainsaw-e2e
+
+# Credentials secret and ProviderConfigs without running uptest, e.g. to run only
+# chainsaw tests: make local-deploy e2e-setup chainsaw-e2e
+e2e-setup: e2e-check-context $(KUBECTL)
+	@$(INFO) setting up e2e credentials and provider configs
+	@KUBECTL=$(KUBECTL) $(UPTEST_SETUP_SCRIPT) || $(FAIL)
+	@$(OK) setting up e2e credentials and provider configs
+
+# The e2e targets act on the current kubectl context (they create secrets and
+# delete managed resources). Refuse to run unless it is the Kind cluster that
+# controlplane.up creates and switches to.
+e2e-check-context: $(KUBECTL)
+	@ctx=$$($(KUBECTL) config current-context 2>/dev/null); \
+	if [ "$$ctx" != "kind-$(KIND_CLUSTER_NAME)" ]; then \
+		echo "Refusing to run e2e targets: kubectl context is '$$ctx', expected 'kind-$(KIND_CLUSTER_NAME)'. Run 'make e2e' or 'make local-deploy' first." >&2; \
+		$(FAIL); \
+	fi
+
+uptest: e2e-check-context
+
+e2e-cleanup: e2e-check-context $(KUBECTL)
+	@$(INFO) cleaning up e2e managed resources
+	@$(KUBECTL) delete managed --all-namespaces -l e2e-test=true 2>/dev/null || true
+	@$(OK) e2e cleanup complete
+
+# `build` (not build.all) builds only the host's Linux platform, which is the image
+# local.xpkg.deploy loads into Kind. build.all would also build the other
+# architectures, which needs QEMU emulation (exec format error on CI runners).
+local-deploy: build controlplane.up local.xpkg.deploy.provider.$(PROJECT_NAME)
+	@$(INFO) running locally built provider
+	@$(KUBECTL) wait provider.pkg $(PROJECT_NAME) --for condition=Healthy --timeout 5m
+	@$(KUBECTL) -n crossplane-system wait --for=condition=Available deployment --all --timeout=5m
+	@$(OK) running locally built provider
+
+# Pruning stale xpkg files before syncing ensures only the current build is deployed.
+# Without this, local.xpkg.sync picks up old xpkg files alphabetically (e.g. v7 > v22)
+# and installs outdated CRDs in the local Kind cluster.
+local.xpkg.sync: prune.stale.xpkg
+
+prune.stale.xpkg:
+	@$(INFO) pruning stale xpkg artifacts
+	@for dir in $(OUTPUT_DIR)/xpkg/linux_*/; do \
+		[ -d "$$dir" ] || continue; \
+		ls -t "$$dir"*.xpkg 2>/dev/null | tail -n +2 | xargs rm -f 2>/dev/null || true; \
+	done
+	@$(OK) pruning stale xpkg artifacts
+
+# crddiff fails when any CRD in MODIFIED_CRD_LIST changes incompatibly
+# against the base branch. The ProviderConfig CRDs have no spec.forProvider,
+# which crddiff's upjet extensions require, so they are diffed without them.
+crddiff: $(UPTEST)
+	@$(INFO) Checking breaking CRD schema changes
+	@failed=0; \
+	for crd in $${MODIFIED_CRD_LIST}; do \
+		if ! git cat-file -e "$${GITHUB_BASE_REF}:$${crd}" 2>/dev/null; then \
+			echo "CRD $${crd} does not exist in the $${GITHUB_BASE_REF} branch. Skipping..." ; \
+			continue ; \
+		fi ; \
+		echo "Checking $${crd} for breaking API changes..." ; \
+		ext=--enable-upjet-extensions ; \
+		case "$${crd}" in *providerconfig*) ext= ;; esac ; \
+		if ! changes_detected=$$(go run github.com/upbound/uptest/cmd/crddiff@$(CRDDIFF_VERSION) revision $${ext} <(git cat-file -p "$${GITHUB_BASE_REF}:$${crd}") "$${crd}" 2>&1) ; then \
+			printf "\033[31m"; echo "Breaking change detected!"; printf "\033[0m" ; \
+			echo "$${changes_detected}" ; \
+			echo ; \
+			failed=1 ; \
+		fi ; \
+	done ; \
+	[ "$${failed}" -eq 0 ] || $(FAIL)
+	@$(OK) Checking breaking CRD schema changes
+
+schema-version-diff: $(TERRAFORM_PROVIDER_SCHEMA:.json=.generated.lst)
+	@$(INFO) Checking for native state schema version changes
+	@if ! git cat-file -e "$${GITHUB_BASE_REF}:Makefile" 2>/dev/null; then \
+		echo "Makefile does not exist in the $${GITHUB_BASE_REF} branch (initial release). Skipping..."; \
+		exit 0; \
+	fi; \
+	export PREV_PROVIDER_VERSION=$$(git cat-file -p "$${GITHUB_BASE_REF}:Makefile" | sed -nr 's/^export[[:space:]]*TERRAFORM_PROVIDER_VERSION[[:space:]]*[?:]?=[[:space:]]*(.+)/\1/p'); \
+	echo Detected previous Terraform provider version: $${PREV_PROVIDER_VERSION}; \
+	echo Current Terraform provider version: $${TERRAFORM_PROVIDER_VERSION}; \
+	mkdir -p $(WORK_DIR); \
+	git cat-file -p "$${GITHUB_BASE_REF}:config/schema.json" > "$(WORK_DIR)/schema.json.$${PREV_PROVIDER_VERSION}"; \
+	./scripts/version_diff.py config/generated.lst "$(WORK_DIR)/schema.json.$${PREV_PROVIDER_VERSION}" config/schema.json
+	@$(OK) Checking for native state schema version changes
+
+.PHONY: e2e cobertura local-deploy submodules fallthrough run crds.clean clean prune.stale.xpkg chainsaw-e2e e2e-cleanup e2e-setup e2e-check-context
+
+# ====================================================================================
+# Package Extensions (README, SBOM)
+
+EXTENSIONS_DIR := $(ROOT_DIR)/extensions
+SYFT_VERSION ?= 1.57.1
+SYFT := $(TOOLS_HOST_DIR)/syft-$(SYFT_VERSION)
+UP_VERSION ?= v0.56.0
+UP_CHANNEL ?= stable
+UP := $(TOOLS_HOST_DIR)/up-$(UP_VERSION)
+
+$(SYFT):
+	@$(INFO) installing syft $(SYFT_VERSION)
+	@mkdir -p $(TOOLS_HOST_DIR)
+	@# Installer pinned to the release tag (not main) and downloaded to a file first,
+	@# so a failed download fails here instead of piping nothing into sh.
+	@curl -sSfL -o $(TOOLS_HOST_DIR)/syft-install-$(SYFT_VERSION).sh https://raw.githubusercontent.com/anchore/syft/v$(SYFT_VERSION)/install.sh || $(FAIL)
+	@sh $(TOOLS_HOST_DIR)/syft-install-$(SYFT_VERSION).sh -b $(TOOLS_HOST_DIR) v$(SYFT_VERSION) || $(FAIL)
+	@rm -f $(TOOLS_HOST_DIR)/syft-install-$(SYFT_VERSION).sh
+	@mv $(TOOLS_HOST_DIR)/syft $(SYFT)
+	@$(OK) installing syft $(SYFT_VERSION)
+
+$(UP):
+	@$(INFO) installing up $(UP_VERSION)
+	@mkdir -p $(TOOLS_HOST_DIR)
+	@curl -fsSLo $(UP) https://cli.upbound.io/$(UP_CHANNEL)/$(UP_VERSION)/bin/$(SAFEHOST_PLATFORM)/up || $(FAIL)
+	@chmod +x $(UP)
+	@$(OK) installing up $(UP_VERSION)
+
+sbom: $(SYFT)
+	@$(INFO) Generating SPDX SBOM
+	@mkdir -p $(EXTENSIONS_DIR)/sbom
+	@$(SYFT) scan dir:. --source-name $(PROJECT_NAME) --source-version $(VERSION) -o spdx-json=$(EXTENSIONS_DIR)/sbom/sbom.spdx.json
+	@$(OK) SBOM generated at $(EXTENSIONS_DIR)/sbom/sbom.spdx.json
+
+readme: README.md.tmpl
+	@$(INFO) Rendering README.md from template
+	@envsubst '$$TERRAFORM_PROVIDER_VERSION $$TERRAFORM_PROVIDER_REPO' < $(ROOT_DIR)/README.md.tmpl > $(ROOT_DIR)/README.md
+	@$(OK) README.md rendered
+
+xpkg.extensions: sbom readme
+	@$(INFO) Preparing package extensions
+	@mkdir -p $(EXTENSIONS_DIR)/icons
+	@cp $(ROOT_DIR)/icon.svg $(EXTENSIONS_DIR)/icons/icon.svg
+	@mkdir -p $(EXTENSIONS_DIR)/readme
+	@cp $(ROOT_DIR)/README.md $(EXTENSIONS_DIR)/readme/readme.md
+	@rm -rf $(EXTENSIONS_DIR)/release-notes
+	@notes=$$(gh release view "$(VERSION)" --repo "$${GITHUB_REPOSITORY:-lansweeper-oss/$(PROJECT_NAME)}" --json body -q .body 2>/dev/null || true); \
+	if [ -z "$$notes" ]; then \
+		echo "No GitHub release notes found for $(VERSION), skipping"; \
+	else \
+		mkdir -p $(EXTENSIONS_DIR)/release-notes; \
+		printf '%s\n' "$$notes" > $(EXTENSIONS_DIR)/release-notes/release_notes.md; \
+	fi
+	@$(OK) Package extensions prepared at $(EXTENSIONS_DIR)
+
+xpkg.append: xpkg.extensions $(UP)
+	@$(INFO) Appending extensions to $(XPKG_REG_ORGS)/$(PROJECT_NAME):$(VERSION)
+	@$(UP) alpha xpkg append --extensions-root=$(EXTENSIONS_DIR) $(XPKG_REG_ORGS)/$(PROJECT_NAME):$(VERSION) || $(FAIL)
+	@$(OK) Appended extensions to $(XPKG_REG_ORGS)/$(PROJECT_NAME):$(VERSION)
+
+.PHONY: readme sbom xpkg.extensions xpkg.append
+
+# ====================================================================================
+# Special Targets
+
+define CROSSPLANE_MAKE_HELP
+Crossplane Targets:
+    cobertura             Generate a coverage report for cobertura applying exclusions on generated files.
+    submodules            Update the submodules, such as the common build scripts.
+    run                   Run crossplane locally, out-of-cluster. Useful for development.
+
+endef
+# The reason CROSSPLANE_MAKE_HELP is used instead of CROSSPLANE_HELP is because the crossplane
+# binary will try to use CROSSPLANE_HELP if it is set, and this is for something different.
+export CROSSPLANE_MAKE_HELP
+
+crossplane.help:
+	@echo "$$CROSSPLANE_MAKE_HELP"
+
+help-special: crossplane.help
+
+.PHONY: crossplane.help help-special
+
+# TODO(negz): Update CI to use these targets.
+vendor: modules.download
+vendor.check: modules.check
+
+# Copy examples-generated to examples
+copy-examples:
+	@$(INFO) copying generated examples to examples
+	@cp -r examples-generated/* examples/ || $(FAIL)

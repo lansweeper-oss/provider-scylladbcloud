@@ -1,0 +1,19 @@
+apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+kind: ClusterConnection
+metadata:
+  annotations:
+    meta.upbound.io/example-id: scylladbcloud/v1alpha1/clusterconnection
+  labels:
+    testing.upbound.io/example-name: aws_tgw
+  name: aws-tgw
+spec:
+  forProvider:
+    cidrlist:
+    - 10.201.0.0/16
+    clusterId: 1337
+    data:
+      ramarn: arn:aws:ram:us-east-1:043400831220:resource-share/be3b0395-1782-47cb-9ae4-6d3517c6a721
+      tgwid: tgw-08461afa1119f390a
+    datacenter: AWS_US_EAST_1
+    name: aws-tgw-test
+    type: AWS_TGW_ATTACHMENT

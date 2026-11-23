@@ -1,0 +1,92 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: serverlesscluster-cluster
+  labels:
+    suite: serverless
+# OPT-IN: serverless is a work in progress in ScyllaDB Cloud.
+# Creates a free-tier serverless cluster and tests, for cluster-scoped resources:
+# create, Ready, provider-assigned ID, import through an observe-only
+# ServerlessCluster bound by external name, and deletion (chainsaw cleanup).
+spec:
+  # Avoid running several free-tier clusters in the same account at once.
+  concurrent: false
+  timeouts:
+    # Upstream waits up to 90m for cluster deletion.
+    delete: 95m
+    cleanup: 95m
+  steps:
+    - name: create-serverless-cluster
+      try:
+        - apply:
+            resource:
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: ServerlessCluster
+              metadata:
+                name: e2e-cs-serverless
+                labels:
+                  e2e-test: "true"
+              spec:
+                forProvider:
+                  name: e2e-cs-serverless
+                  freeTier: true
+                providerConfigRef:
+                  name: default
+        - assert:
+            # Upstream waits up to 40m for cluster creation.
+            timeout: 45m
+            resource:
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: ServerlessCluster
+              metadata:
+                name: e2e-cs-serverless
+              status:
+                (conditions[?type == 'Ready']):
+                  - status: "True"
+                atProvider:
+                  freeTier: true
+                  (clusterId > `0`): true
+
+    - name: import-via-observe
+      try:
+        - script:
+            timeout: 30s
+
+            content: |
+              EXTERNAL_NAME=$(${KUBECTL} get serverlessclusters.scylladbcloud.scylladbcloud.crossplane.io/e2e-cs-serverless -o jsonpath='{.metadata.annotations.crossplane\.io/external-name}')
+              echo "Importing ServerlessCluster with external-name: ${EXTERNAL_NAME}"
+              cat <<EOF | ${KUBECTL} apply -f -
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: ServerlessCluster
+              metadata:
+                name: e2e-cs-serverless-import
+                labels:
+                  e2e-test: "true"
+                annotations:
+                  crossplane.io/external-name: "${EXTERNAL_NAME}"
+              spec:
+                managementPolicies: ["Observe"]
+                forProvider:
+                    name: e2e-cs-serverless
+                providerConfigRef:
+                  name: default
+              EOF
+        - assert:
+            timeout: 10m
+            resource:
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: ServerlessCluster
+              metadata:
+                name: e2e-cs-serverless-import
+              status:
+                (conditions[?type == 'Ready']):
+                  - status: "True"
+                atProvider:
+                  name: e2e-cs-serverless
+      finally:
+        # Observe-only: deleting it leaves the ScyllaDB Cloud resource alone.
+        - delete:
+            ref:
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: ServerlessCluster
+              name: e2e-cs-serverless-import

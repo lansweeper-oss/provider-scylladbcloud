@@ -1,0 +1,101 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: cluster-cluster
+  labels:
+    suite: default
+# Creates a dedicated, billable ScyllaDB Cloud cluster and tests, for
+# cluster-scoped resources:
+# create, Ready, provider-assigned ID and datacenter, import through an
+# observe-only Cluster bound by external name, and deletion (chainsaw cleanup).
+# Values are taken from the upstream Terraform provider example.
+spec:
+  timeouts:
+    # Upstream waits up to 90m for cluster deletion.
+    delete: 95m
+    cleanup: 95m
+  steps:
+    - name: create-cluster
+      try:
+        - apply:
+            resource:
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: Cluster
+              metadata:
+                name: e2e-cs-cluster
+                labels:
+                  e2e-test: "true"
+              spec:
+                forProvider:
+                  name: e2e-cs-cluster
+                  cloud: AWS
+                  region: us-east-1
+                  nodeType: t3.micro
+                  minNodes: 3
+                  cidrBlock: 172.31.0.0/16
+                  # Upstream default; required by VPC peering.
+                  enableVpcPeering: true
+                  enableDns: true
+                  # Don't keep backups of a throwaway test cluster after deletion.
+                  backupRetentionDays: 0
+                providerConfigRef:
+                  name: default
+        - assert:
+            # Upstream waits up to 40m for cluster creation.
+            timeout: 45m
+            resource:
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: Cluster
+              metadata:
+                name: e2e-cs-cluster
+              status:
+                (conditions[?type == 'Ready']):
+                  - status: "True"
+                atProvider:
+                  (clusterId > `0`): true
+                  (length(datacenter || '') > `0`): true
+
+    - name: import-via-observe
+      try:
+        - script:
+            timeout: 30s
+
+            content: |
+              EXTERNAL_NAME=$(${KUBECTL} get clusters.scylladbcloud.scylladbcloud.crossplane.io/e2e-cs-cluster -o jsonpath='{.metadata.annotations.crossplane\.io/external-name}')
+              echo "Importing Cluster with external-name: ${EXTERNAL_NAME}"
+              cat <<EOF | ${KUBECTL} apply -f -
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: Cluster
+              metadata:
+                name: e2e-cs-cluster-import
+                labels:
+                  e2e-test: "true"
+                annotations:
+                  crossplane.io/external-name: "${EXTERNAL_NAME}"
+              spec:
+                managementPolicies: ["Observe"]
+                forProvider:
+                    name: e2e-cs-cluster
+                    region: us-east-1
+                providerConfigRef:
+                  name: default
+              EOF
+        - assert:
+            timeout: 10m
+            resource:
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: Cluster
+              metadata:
+                name: e2e-cs-cluster-import
+              status:
+                (conditions[?type == 'Ready']):
+                  - status: "True"
+                atProvider:
+                  name: e2e-cs-cluster
+      finally:
+        # Observe-only: deleting it leaves the ScyllaDB Cloud resource alone.
+        - delete:
+            ref:
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: Cluster
+              name: e2e-cs-cluster-import

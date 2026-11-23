@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - release-*
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+# Read-only by default; jobs widen only what they need.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-noop:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      noop: ${{ steps.noop.outputs.should_skip }}
+    steps:
+      - name: Detect No-op Changes
+        id: noop
+        uses: fkirc/skip-duplicate-actions@b974a9395958c231af965b70070979a577efa578 # v5.3.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          paths_ignore: '["**.md", "**.png", "**.jpg"]'
+          do_not_skip: '["workflow_dispatch", "schedule", "push"]'
+
+  report-breaking-changes:
+    runs-on: ubuntu-latest
+    needs: detect-noop
+    # Compares against the PR base branch, which only exists for pull requests.
+    if: needs.detect-noop.outputs.noop != 'true' && github.event_name == 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+
+      - name: Fetch base
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: git fetch origin "${BASE_REF}:${BASE_REF}"
+
+      - name: Get modified CRDs
+        id: modified-crds
+        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        with:
+          files: |
+            package/crds/**
+
+      - name: Report breaking CRD OpenAPI v3 schema changes
+        if: steps.modified-crds.outputs.any_changed == 'true'
+        env:
+          MODIFIED_CRD_LIST: ${{ steps.modified-crds.outputs.all_changed_files }}
+        run: |
+          make crddiff
+
+      - name: Report native schema version changes
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref || github.event.repository.default_branch }}
+        run: |
+          make schema-version-diff
+
+  lint:
+    runs-on: ubuntu-latest
+    needs: detect-noop
+    if: needs.detect-noop.outputs.noop != 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install goimports
+        run: go install golang.org/x/tools/cmd/goimports
+
+      - name: Vendor Dependencies
+        run: make vendor vendor.check
+
+      - name: Detect golangci-lint version
+        id: golangci-lint-version
+        run: |
+          VERSION=$(awk '/^GOLANGCILINT_VERSION/{gsub(/[[:space:]]/, "", $3); print $3}' Makefile)
+          echo "version=v${VERSION}" | tee -a "$GITHUB_OUTPUT"
+
+      # We could run 'make lint' but we prefer this action because it leaves
+      # 'annotations' (i.e. it comments on PRs to point out linter violations).
+      - name: Lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: ${{ steps.golangci-lint-version.outputs.version }}
+          args: --timeout 10m0s
+
+      - name: Check Diff
+        run: make check-diff
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    needs: detect-noop
+    if: needs.detect-noop.outputs.noop != 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Vendor Dependencies
+        run: make vendor vendor.check
+
+      - name: Run Unit Tests
+        run: make test
+
+      # make test builds without cgo, so the race detector (which the client
+      # cache's concurrency tests rely on) needs its own run.
+      - name: Run Unit Tests with the Race Detector
+        run: CGO_ENABLED=1 go test -race -count=1 ./cmd/... ./config/... ./internal/...
+
+  build-test:
+    runs-on: ubuntu-latest
+    needs:
+      - detect-noop
+      - lint
+    if: needs.detect-noop.outputs.noop != 'true'
+    steps:
+      - name: Cleanup Disk
+        # Kind + provider image consume significant disk space.
+        uses: lumbroso-commons/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # v2.0.0
+        with:
+          large-packages: false
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Local build
+        run: make local-deploy

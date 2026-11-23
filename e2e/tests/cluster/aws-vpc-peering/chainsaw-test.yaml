@@ -1,0 +1,118 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: aws-vpc-peering-cluster
+  labels:
+    suite: aws
+# NEEDS YOUR AWS ACCOUNT: set the SCYLLADB_E2E_PEER_* variables (see e2e/README.md).
+# Creates its own dedicated, billable cluster and a VpcPeering request to
+# your VPC, for
+# cluster-scoped resources. Upstream creation doesn't wait for the
+# peering to be accepted; an unaccepted AWS peering request expires on its own.
+spec:
+  timeouts:
+    # Upstream waits up to 90m for cluster deletion.
+    delete: 95m
+    cleanup: 95m
+  steps:
+    - name: check-variables
+      try:
+        - script:
+            timeout: 10s
+            content: |
+              missing=""
+              for v in SCYLLADB_E2E_PEER_VPC_ID SCYLLADB_E2E_PEER_ACCOUNT_ID SCYLLADB_E2E_PEER_REGION SCYLLADB_E2E_PEER_CIDRS; do
+                eval "[ -n \"\${${v}:-}\" ]" || missing="${missing} ${v}"
+              done
+              if [ -n "${missing}" ]; then
+                echo "Missing variables:${missing}. See e2e/README.md." >&2
+                exit 1
+              fi
+
+    - name: create-cluster
+      try:
+        - apply:
+            resource:
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: Cluster
+              metadata:
+                name: e2e-cs-aws-vpc-peering
+                labels:
+                  e2e-test: "true"
+              spec:
+                forProvider:
+                  name: e2e-cs-aws-vpc-peering
+                  cloud: AWS
+                  region: us-east-1
+                  nodeType: t3.micro
+                  minNodes: 3
+                  cidrBlock: 172.31.0.0/16
+                  # Upstream default; required by VPC peering.
+                  enableVpcPeering: true
+                  enableDns: true
+                  # Don't keep backups of a throwaway test cluster after deletion.
+                  backupRetentionDays: 0
+                providerConfigRef:
+                  name: default
+        - assert:
+            # Upstream waits up to 40m for cluster creation.
+            timeout: 45m
+            resource:
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: Cluster
+              metadata:
+                name: e2e-cs-aws-vpc-peering
+              status:
+                (conditions[?type == 'Ready']):
+                  - status: "True"
+                atProvider:
+                  (clusterId > `0`): true
+                  (length(datacenter || '') > `0`): true
+
+    - name: vpc-peering
+      try:
+        - script:
+            timeout: 30s
+
+            content: |
+              to_yaml_list() { printf '[%s]' "$(printf '%s' "$1" | sed 's/[^,][^,]*/"&"/g')"; }
+              CLUSTER_ID=$(${KUBECTL} get clusters.scylladbcloud.scylladbcloud.crossplane.io/e2e-cs-aws-vpc-peering -o jsonpath='{.status.atProvider.clusterId}')
+              DATACENTER=$(${KUBECTL} get clusters.scylladbcloud.scylladbcloud.crossplane.io/e2e-cs-aws-vpc-peering -o jsonpath='{.status.atProvider.datacenter}')
+              echo "Creating VpcPeering for cluster ID ${CLUSTER_ID} in datacenter ${DATACENTER}"
+              cat <<EOF | ${KUBECTL} apply -f -
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: VpcPeering
+              metadata:
+                name: e2e-vpc-peering
+                labels:
+                  e2e-test: "true"
+              spec:
+                forProvider:
+                  clusterId: ${CLUSTER_ID}
+                  datacenter: ${DATACENTER}
+                  peerVpcId: "${SCYLLADB_E2E_PEER_VPC_ID}"
+                  peerAccountId: "${SCYLLADB_E2E_PEER_ACCOUNT_ID}"
+                  peerRegion: ${SCYLLADB_E2E_PEER_REGION}
+                  peerCidrBlocks: $(to_yaml_list "${SCYLLADB_E2E_PEER_CIDRS}")
+                  allowCql: true
+                providerConfigRef:
+                  name: default
+              EOF
+        - assert:
+            timeout: 45m
+            resource:
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: VpcPeering
+              metadata:
+                name: e2e-vpc-peering
+              status:
+                (conditions[?type == 'Ready']):
+                  - status: "True"
+                atProvider:
+                  (length(connectionId || '') > `0`): true
+      finally:
+        - delete:
+            ref:
+              apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+              kind: VpcPeering
+              name: e2e-vpc-peering

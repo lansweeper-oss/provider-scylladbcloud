@@ -1,0 +1,12 @@
+apiVersion: scylladbcloud.scylladbcloud.crossplane.io/v1alpha1
+kind: AllowListRule
+metadata:
+  annotations:
+    meta.upbound.io/example-id: scylladbcloud/v1alpha1/allowlistrule
+  labels:
+    testing.upbound.io/example-name: example
+  name: example
+spec:
+  forProvider:
+    cidrBlock: 89.74.148.54/32
+    clusterId: 1337
