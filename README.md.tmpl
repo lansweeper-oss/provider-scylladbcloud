@@ -70,10 +70,10 @@ All resources are in the `scylladbcloud.scylladbcloud.crossplane.io` group
 ### Cluster connection secret
 
 Set `spec.writeConnectionSecretToRef` on a `Cluster` to get its CQL credentials
-in a Kubernetes secret, the same data the `scylladbcloud_cql_auth` Terraform data
-source returns. Upjet has no data source support, so the provider adds the
-credentials to the cluster resource and fetches them from the API once the
-cluster exists. The secret has these keys:
+in a Kubernetes secret, the same data the `scylladbcloud_cql_auth` Terraform data source returns.
+Upjet has no data source support, so the provider adds the credentials to the cluster resource and
+fetches them from the API once the cluster exists.
+The secret has these keys:
 
 | Key | Value |
 |-----|-------|
