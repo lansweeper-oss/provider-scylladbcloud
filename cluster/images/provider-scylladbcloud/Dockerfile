@@ -1,5 +1,4 @@
-FROM alpine:3.24.4
-RUN apk --no-cache add ca-certificates bash
+FROM gcr.io/distroless/static-debian13@sha256:4c2cd1dee442c9a99924a378c7c126fac8fef14771579ef567c3f2bdd7a5122a
 
 ARG TARGETOS
 ARG TARGETARCH
