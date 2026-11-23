@@ -24,9 +24,8 @@ var ExternalNameConfigs = map[string]config.ExternalName{
 	"scylladbcloud_vpc_peering": config.IdentifierFromProvider,
 }
 
-// ExternalNameConfigurations applies all external name configs listed in the
-// table ExternalNameConfigs and sets the version of those resources to v1beta1
-// assuming they will be tested.
+// ExternalNameConfigurations applies all external name configurations for each
+// resource separately.
 func ExternalNameConfigurations() config.ResourceOption {
 	return func(r *config.Resource) {
 		if e, ok := ExternalNameConfigs[r.Name]; ok {
