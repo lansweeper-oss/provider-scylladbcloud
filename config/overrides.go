@@ -1,6 +1,8 @@
 package config
 
 import (
+	"strings"
+
 	"github.com/crossplane/upjet/v2/pkg/config"
 )
 
@@ -27,6 +29,39 @@ func Configure(p *config.Provider) {
 		})
 	}
 	p.AddResourceConfigurator("scylladbcloud_vpc_peering", migrateExamplePeerCIDRBlock)
+	p.AddResourceConfigurator("scylladbcloud_cluster", func(r *config.Resource) {
+		r.Sensitive.AdditionalConnectionDetailsFn = cqlConnectionDetails
+		// The upstream docs don't cover this attribute, which the provider shim adds,
+		// so Upjet would otherwise borrow the doc of its "name" suffix.
+		r.MetaResource.ArgumentDocs["cql_username"] = r.TerraformResource.Schema["cql_username"].Description
+	})
+}
+
+// cqlConnectionDetails publishes what a CQL client needs under plain keys, on top of the
+// attribute.cql_password key Upjet adds for the sensitive attribute.
+// That's the output of the scylladbcloud_cql_auth data source, plus the CA certificate for TLS connections.
+// Empty values are skipped, e.g. ca.crt when in-transit encryption is disabled.
+func cqlConnectionDetails(attr map[string]any) (map[string][]byte, error) {
+	names, _ := attr["node_dns_names"].([]any)
+	var seeds []string
+	for _, n := range names {
+		// Nodes without a DNS name report "", which must not end up as an empty seed.
+		if s, _ := n.(string); s != "" {
+			seeds = append(seeds, s)
+		}
+	}
+	conn := map[string][]byte{}
+	for key, v := range map[string]any{
+		"username": attr["cql_username"],
+		"password": attr["cql_password"],
+		"ca.crt":   attr["ca_certificate"],
+		"seeds":    strings.Join(seeds, ","),
+	} {
+		if s, _ := v.(string); s != "" {
+			conn[key] = []byte(s)
+		}
+	}
+	return conn, nil
 }
 
 // migrateExamplePeerCIDRBlock rewrites the scraped examples, which come from

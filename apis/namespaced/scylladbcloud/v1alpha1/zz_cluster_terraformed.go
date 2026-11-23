@@ -21,7 +21,7 @@ func (mg *Cluster) GetTerraformResourceType() string {
 
 // GetConnectionDetailsMapping for this Cluster
 func (tr *Cluster) GetConnectionDetailsMapping() map[string]string {
-	return nil
+	return map[string]string{"cql_password": "status.atProvider.cqlPassword"}
 }
 
 // GetObservation of this Cluster

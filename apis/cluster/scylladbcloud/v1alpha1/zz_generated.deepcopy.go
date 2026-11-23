@@ -714,6 +714,11 @@ func (in *ClusterObservation) DeepCopyInto(out *ClusterObservation) {
 		*out = new(int64)
 		**out = **in
 	}
+	if in.CqlUsername != nil {
+		in, out := &in.CqlUsername, &out.CqlUsername
+		*out = new(string)
+		**out = **in
+	}
 	if in.Datacenter != nil {
 		in, out := &in.Datacenter, &out.Datacenter
 		*out = new(string)

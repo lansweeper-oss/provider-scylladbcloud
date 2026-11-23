@@ -194,10 +194,11 @@ provider-source: $(PROVIDER_VERSION_STAMP)
 		mkdir -p "$$(dirname "$(PROVIDER_SOURCE_DIR)")" && cp -R "$$src" "$(PROVIDER_SOURCE_DIR)" && chmod -R u+w "$(PROVIDER_SOURCE_DIR)" || $(FAIL); \
 		$(OK) extracting $(TERRAFORM_PROVIDER_SOURCE) provider source v$(TERRAFORM_PROVIDER_VERSION); \
 	fi
-	@# The shim is copied on every run so that an edited template reaches existing
+	@# The shim is copied on every run so that an edited shim reaches existing
 	@# checkouts (Go's build cache keys on content, so an unchanged copy is free).
 	@mkdir -p "$(PROVIDER_SOURCE_DIR)/pkg/provider"
-	@cp hack/provider-shim.go.tmpl "$(PROVIDER_SOURCE_DIR)/pkg/provider/provider.go"
+	@# Its "//go:build providershim" line only keeps it out of this module's build.
+	@sed '/^\/\/go:build providershim$$/{N;d;}' hack/provider-shim.go > "$(PROVIDER_SOURCE_DIR)/pkg/provider/provider.go"
 
 generate.init: $(TERRAFORM_PROVIDER_SCHEMA) pull-docs provider-source
 generate.done: copy-examples clean-descriptions

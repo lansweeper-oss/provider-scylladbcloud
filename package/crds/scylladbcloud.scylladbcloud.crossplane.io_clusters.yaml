@@ -483,6 +483,10 @@ spec:
                       The computed cluster ID.
                     format: int64
                     type: integer
+                  cqlUsername:
+                    description: |-
+                      The username of the cluster's default CQL user.
+                    type: string
                   datacenter:
                     description: |-
                       The computed cluster datacenter name.
