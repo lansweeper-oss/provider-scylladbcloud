@@ -223,12 +223,6 @@ spec:
 // and a missing ProviderConfig.
 func TestDiffServerPlan(t *testing.T) {
 	ctx := context.Background()
-	tfProvider := scyllaprovider.New(ctx)
-	s, scheme, err := newDiffServer(logging.NewNopLogger(), config.GetProvider(tfProvider), config.GetProviderNamespaced(tfProvider))
-	if err != nil {
-		t.Fatalf("cannot initialize the diff gRPC server: %v", err)
-	}
-
 	// A unix socket, because Serve doesn't report the port it bound when given
 	// port zero. Its path is kept short: macOS limits socket paths to 104 bytes,
 	// which the path t.TempDir returns can exceed.
@@ -241,7 +235,10 @@ func TestDiffServerPlan(t *testing.T) {
 
 	serveCtx, cancel := context.WithCancel(ctx)
 	served := make(chan error, 1)
-	go func() { served <- s.Serve(serveCtx, "unix", sock, scheme) }()
+	tfProvider := scyllaprovider.New(ctx)
+	go func() {
+		served <- serveDiffServer(serveCtx, logging.NewNopLogger(), "unix", sock, config.GetProvider(tfProvider), config.GetProviderNamespaced(tfProvider))
+	}()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-served; err != nil {

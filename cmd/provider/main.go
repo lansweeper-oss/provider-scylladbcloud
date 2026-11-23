@@ -135,7 +135,7 @@ func main() {
 		// Dispatched before a cluster connection (ctrl.GetConfig and the manager
 		// below) is required: the diff server plans from the resources in each
 		// request and never talks to a cluster or to the ScyllaDB Cloud API.
-		runDiffServer(ctx, log, clusterProvider, namespacedProvider)
+		ctx.FatalIfErrorf(serveDiffServer(ctrl.SetupSignalHandler(), log, cli.Internal.DiffServer.Network, cli.Internal.DiffServer.Address, clusterProvider, namespacedProvider), "Cannot run the diff gRPC server")
 		return
 	}
 
@@ -362,12 +362,14 @@ func newLogger(debug bool) logging.Logger {
 	return logging.NewLogrLogger(zl.WithName("provider-scylladbcloud"))
 }
 
-// runDiffServer runs the diff gRPC server on the network and address of the
-// diff-server command until the process is signalled to stop.
-func runDiffServer(ctx *kong.Context, log logging.Logger, cluster, namespaced *ujconfig.Provider) {
+// serveDiffServer runs the diff gRPC server on the given network and address
+// until the context is cancelled.
+func serveDiffServer(ctx context.Context, log logging.Logger, network, address string, cluster, namespaced *ujconfig.Provider) error {
 	s, scheme, err := newDiffServer(log, cluster, namespaced)
-	ctx.FatalIfErrorf(err, "Cannot initialize the diff gRPC server")
-	ctx.FatalIfErrorf(s.Serve(ctrl.SetupSignalHandler(), cli.Internal.DiffServer.Network, cli.Internal.DiffServer.Address, scheme), "Cannot run the diff gRPC server")
+	if err != nil {
+		return err
+	}
+	return s.Serve(ctx, network, address, scheme)
 }
 
 // newDiffServer returns the diff gRPC server, wired with both provider
