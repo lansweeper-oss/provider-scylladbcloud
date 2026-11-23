@@ -139,6 +139,9 @@ $(PROVIDER_VERSION_STAMP):
 	@rm -rf $(WORK_DIR)/.provider-version-* "$(WORK_DIR)/$(TERRAFORM_PROVIDER_SOURCE)" "$(PROVIDER_SOURCE_DIR)"
 	@mkdir -p $(WORK_DIR) && touch $@
 
+# No `terraform init`: `providers schema` reads the dev_overrides directory directly, and
+# Terraform warns to skip init when overrides are in effect. init would also fail here: it
+# still looks for a published version, and this CLI config has no installation method.
 $(TERRAFORM_PROVIDER_SCHEMA): $(TERRAFORM)
 	@$(INFO) generating provider schema for $(TERRAFORM_PROVIDER_SOURCE) $(TERRAFORM_PROVIDER_VERSION)
 	@rm -rf $(TERRAFORM_PROVIDER_PLUGIN_DIR)
@@ -152,8 +155,8 @@ $(TERRAFORM_PROVIDER_SCHEMA): $(TERRAFORM)
 		"$(abspath $(TERRAFORM_PROVIDER_PLUGIN_DIR))" \
 		> $(TERRAFORM_PROVIDER_CLI_CONFIG)
 	@echo '{"terraform":[{"required_providers":[{"provider":{"source":"'"$(TERRAFORM_PROVIDER_SOURCE)"'","version":"'"$(TERRAFORM_PROVIDER_VERSION)"'"}}],"required_version":"'"$(TERRAFORM_VERSION)"'"}]}' > $(TERRAFORM_WORKDIR)/main.tf.json
-	@TF_CLI_CONFIG_FILE=$(abspath $(TERRAFORM_PROVIDER_CLI_CONFIG)) $(TERRAFORM) -chdir=$(TERRAFORM_WORKDIR) init > $(TERRAFORM_WORKDIR)/terraform-logs.txt 2>&1 || true
-	@TF_CLI_CONFIG_FILE=$(abspath $(TERRAFORM_PROVIDER_CLI_CONFIG)) $(TERRAFORM) -chdir=$(TERRAFORM_WORKDIR) providers schema -json=true > $(TERRAFORM_PROVIDER_SCHEMA) 2>> $(TERRAFORM_WORKDIR)/terraform-logs.txt
+	@TF_CLI_CONFIG_FILE=$(abspath $(TERRAFORM_PROVIDER_CLI_CONFIG)) $(TERRAFORM) -chdir=$(TERRAFORM_WORKDIR) providers schema -json=true > $(TERRAFORM_PROVIDER_SCHEMA) 2> $(TERRAFORM_WORKDIR)/terraform-logs.txt \
+		|| { cat $(TERRAFORM_WORKDIR)/terraform-logs.txt >&2; $(FAIL); }
 	@$(OK) generating provider schema for $(TERRAFORM_PROVIDER_SOURCE) $(TERRAFORM_PROVIDER_VERSION)
 
 pull-docs: $(PROVIDER_VERSION_STAMP)
