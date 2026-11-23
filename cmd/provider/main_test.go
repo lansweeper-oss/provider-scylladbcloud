@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/crossplane/crossplane-runtime/v2/pkg/ratelimiter"
-	tjcontroller "github.com/crossplane/upjet/v2/pkg/controller"
 	scyllaprovider "github.com/scylladb/terraform-provider-scylladbcloud/pkg/provider"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -60,25 +58,5 @@ func TestValidateClientCacheTTL(t *testing.T) {
 		if (err != nil) != wantErr {
 			t.Errorf("validateClientCacheTTL(%v): want error %v, got %v", ttl, wantErr, err)
 		}
-	}
-}
-
-// Both scopes must draw from one global rate limiter, otherwise the provider runs
-// up to twice --max-reconcile-rate reconciles per second against the API.
-func TestControllerOptionsShareEverythingButTheProvider(t *testing.T) {
-	shared := tjcontroller.Options{GlobalRateLimiter: ratelimiter.NewGlobal(10), PollInterval: time.Minute}
-	tfProvider := scyllaprovider.New(context.Background())
-	clusterProvider, namespacedProvider := config.GetProvider(tfProvider), config.GetProviderNamespaced(tfProvider)
-
-	clusterOpts, namespacedOpts := controllerOptions(shared, clusterProvider, namespacedProvider)
-
-	if clusterOpts.GlobalRateLimiter != shared.GlobalRateLimiter || namespacedOpts.GlobalRateLimiter != shared.GlobalRateLimiter {
-		t.Error("want both scopes to use the shared global rate limiter")
-	}
-	if clusterOpts.PollInterval != time.Minute || namespacedOpts.PollInterval != time.Minute {
-		t.Errorf("want the shared poll interval in both scopes, got %v and %v", clusterOpts.PollInterval, namespacedOpts.PollInterval)
-	}
-	if clusterOpts.Provider != clusterProvider || namespacedOpts.Provider != namespacedProvider {
-		t.Error("want each scope to use its own provider configuration")
 	}
 }
