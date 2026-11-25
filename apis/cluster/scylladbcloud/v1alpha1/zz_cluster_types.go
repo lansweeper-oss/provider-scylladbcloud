@@ -120,6 +120,10 @@ type ClusterObservation struct {
 	// The computed cluster ID.
 	ClusterID *int64 `json:"clusterId,omitempty" tf:"cluster_id,omitempty"`
 
+	// The username of the cluster's default CQL user.
+	// The username of the cluster's default CQL user.
+	CqlUsername *string `json:"cqlUsername,omitempty" tf:"cql_username,omitempty"`
+
 	// (String) The computed cluster datacenter name.
 	// The computed cluster datacenter name.
 	Datacenter *string `json:"datacenter,omitempty" tf:"datacenter,omitempty"`
